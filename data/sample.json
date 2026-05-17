@@ -1,0 +1,16 @@
+{"relation": [["United States", "Canada", "Japan"], ["USA", "CAN", "JPN"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Country ISO Codes", "url": "http://example.com/table0"}
+{"relation": [["United States", "Canada", "Germany"], ["USA", "CAN", "DEU"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Country ISO Codes 2", "url": "http://example.com/table1"}
+{"relation": [["Japan", "Germany", "France"], ["JPN", "DEU", "FRA"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Country ISO Codes 3", "url": "http://example.com/table2"}
+{"relation": [["MSFT", "AAPL", "GOOGL"], ["Microsoft", "Apple", "Alphabet"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Stock Tickers", "url": "http://example.com/table3"}
+{"relation": [["MSFT", "AAPL"], ["Microsoft", "Apple"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Stock Tickers 2", "url": "http://example.com/table4"}
+{"relation": [["2024-01-01", "hello world", "83.5%", "the matrix", "blue"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Garbage Column", "url": "http://example.com/table5"}
+{"relation": [["2024-01-01", "2024-06-15", "2024-12-31"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Dates", "url": "http://example.com/table6"}
+{"relation": [["2024-01-01", "2024-02-29"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Dates 2", "url": "http://example.com/table7"}
+{"relation": [["red", "blue", "green"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Colors", "url": "http://example.com/table8"}
+{"relation": [["yellow", "blue", "purple"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Colors 2", "url": "http://example.com/table9"}
+{"relation": [["the matrix", "inception"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Movies", "url": "http://example.com/table10"}
+{"relation": [["the matrix", "interstellar"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Movies 2", "url": "http://example.com/table11"}
+{"relation": [["83.5%", "67.1%", "12.5%"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Percentages", "url": "http://example.com/table12"}
+{"relation": [["83.5%", "45.2%"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Percentages 2", "url": "http://example.com/table13"}
+{"relation": [["hello world", "goodbye"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Greetings", "url": "http://example.com/table14"}
+{"relation": [["hello world", "hi there"]], "tableType": "RELATION", "hasHeader": false, "headerRowIndex": -1, "pageTitle": "Greetings 2", "url": "http://example.com/table15"}
