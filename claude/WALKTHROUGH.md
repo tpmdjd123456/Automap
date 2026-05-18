@@ -388,3 +388,140 @@ A few likely ones:
 > ambiguity) against false positives (accepting non-mappings that happen
 > to be mostly-functional in one table). Like the WP1 threshold, it's
 > tunable and downstream stages validate the choice.
+
+---
+
+## 12. WP3: Table Synthesis (paper §4.2)
+
+### The problem
+
+After WP2, we have thousands of small candidate two-column tables. Each 
+one is a fragment of a mapping relationship. For example:
+Table 1: (South Korea, KOR), (France, FRA), (Germany, DEU)
+Table 2: (Korea Republic, KOR), (France, FRA), (Japan, JPN)
+Table 3: (South Korea, KOR), (France, FRA), (Algeria, DZA)
+Table 1 and Table 2 are about the same relationship (country → ISO code) 
+but use different synonyms. Table 3 is about a different standard (ISO 
+vs IOC). WP3 figures out which tables belong together and merges them.
+
+### The key insight
+
+Two tables that describe the same relationship should:
+- Share many common value pairs (**positive compatibility**)
+- NOT have conflicting pairs where the same left value maps to different 
+  right values (**negative incompatibility**)
+
+### The math (paper §4.1, Equations 3 and 4)
+
+**Positive compatibility** uses Maximum-of-Containment:
+w+(B, B') = max( |B ∩ B'| / |B| , |B ∩ B'| / |B'| )
+This is high when one table is mostly contained in the other. Regular 
+Jaccard similarity would unfairly penalize small tables being merged 
+into large ones.
+
+**Negative incompatibility** uses conflict ratio:
+w-(B, B') = -max( |F| / |B| , |F| / |B'| )
+Where F is the set of left values that map to different right values 
+across the two tables. A negative score below threshold τ blocks the merge.
+
+### Approximate string matching (Algorithm 2)
+
+Real tables have minor variations like "Korea Republic" vs "Korea, 
+Republic of". The paper uses edit distance with a fractional threshold:
+threshold = min( floor(len(v1) * 0.2), floor(len(v2) * 0.2), 10 )
+Short strings like "USA" require exact match (threshold=0). Longer 
+strings allow small typos. Implemented in `approx_match()` in 
+`synthesis.py` using band dynamic programming (Ukkonen-style) for 
+efficiency.
+
+### The greedy algorithm (Algorithm 3, paper §4.2)
+
+The optimization problem is NP-hard (reduction from graph multi-cut). 
+The greedy heuristic:
+Start: each candidate table is its own partition
+Find the pair of partitions with highest w+ where w- >= tau
+Merge them into one partition
+Update scores for the new partition vs all others
+Repeat until no more merges are possible
+Score updates after a merge are additive for positive scores and use 
+minimum for negative scores — directly from Algorithm 3 in the paper.
+
+### Inverted index for efficiency
+
+Computing all pairwise scores naively is O(N²). Instead we build two 
+inverted indexes:
+
+- `pair_index`: maps (left, right) → list of candidate indices containing that pair
+- `left_index`: maps left value → list of candidate indices containing it
+
+Only candidates sharing at least one value pair need their compatibility 
+computed. In practice this makes the number of edges much smaller than N².
+
+### Output
+
+Writes `synthesized_mappings.jsonl` to the output folder. Each line has:
+
+| Field | Meaning |
+|---|---|
+| `partition_id` | Unique ID for this synthesized mapping |
+| `candidate_indices` | Which WP2 candidates were merged |
+| `pairs` | Union of all (left, right) pairs from merged candidates |
+| `size` | Total number of unique pairs |
+| `num_source_tables` | How many candidate tables were merged |
+
+---
+
+## 12. WP4: Conflict Resolution (paper §4.3)
+
+### The problem
+
+After WP3 synthesis, some merged mapping tables contain **conflicts** — 
+the same left-hand value maps to two different right-hand values within 
+the same partition. For example:
+(Algeria, ALG)   ← from one table
+(Algeria, DZA)   ← from a different table
+Both survived WP3 because the tables were compatible enough to merge, 
+but they violate the definition of a mapping relationship (one left value 
+must map to exactly one right value).
+
+### Why conflicts happen
+
+When many tables are merged into one partition, some will have quality 
+issues or extraction errors. For example, a table about IOC codes and a 
+table about ISO codes might get merged because they share many country 
+names. The conflicting pairs reveal the mistake.
+
+### The algorithm (Algorithm 4, Appendix G)
+
+The paper proves this problem is NP-hard (reduction from Maximum 
+Independent Set). The greedy approximation works as follows:
+Find all conflicts: left values that map to more than one right value
+For each (left, right) pair, count how many other pairs it conflicts with
+Remove the pair involved in the most conflicts
+Repeat until no conflicts remain
+
+This is implemented in `conflict_resolution.py`:
+
+- `find_conflicts(pairs)` — returns dict of {left: [right1, right2, ...]} 
+  for every conflicting left value
+- `has_conflicts(pairs)` — quick boolean check
+- `resolve_conflicts(pairs)` — runs the greedy algorithm, returns clean pairs
+- `run_conflict_resolution(synthesized_path, output_path)` — full pipeline
+
+### Output
+
+Writes `resolved_mappings.jsonl` to the output folder. Each line has:
+
+| Field | Meaning |
+|---|---|
+| `partition_id` | Which synthesized mapping this came from |
+| `pairs` | Clean (left, right) pairs after conflict removal |
+| `size` | Number of pairs remaining |
+| `num_conflicts_removed` | How many pairs were removed |
+
+### Effect on quality
+
+From the paper (§5.6): conflict resolution improves precision from 0.903 
+to 0.965 on average, while recall only drops slightly from 0.885 to 0.878. 
+The biggest improvements are on mappings like (state → capital) that tend 
+to get confused with similar mappings like (state → largest-city).
