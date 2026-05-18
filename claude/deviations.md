@@ -53,10 +53,32 @@ designed against the paper directly. Notable choices:
 | 18 | **Greedy witness-subset construction** | For each distinct x, pick the most-common y. Provably the largest R̄ — picking any other y for a given x covers fewer rows. |
 | 19 | **No reverse-direction inference** | (C_i, C_j) and (C_j, C_i) evaluated independently. A 1:1 mapping survives both directions; an N:1 mapping survives one. Matches the paper's distinction between 1:1 and N:1 (§2.1). |
 
-## Open items deferred to WP3+
+## Open items deferred to future work
 
-- Section 4 (Table Synthesis): stitching candidates that share the same relationship.
-- Section 5 (Conflict Resolution): post-processing to remove contradictions in synthesized mappings.
 - Streaming / out-of-core processing for >sample-scale corpora.
 - Distributed execution (paper uses MapReduce).
-- Bidirectional FD inference (treating `X →_θ Y` and `Y →_θ X` as a single 1:1 mapping). Each direction stays independent in the WP2 output; WP3 can later detect 1:1 by finding both directions present.
+- Bidirectional FD inference (treating `X →_θ Y` and `Y →_θ X` as a single 1:1 mapping).
+- Section 5 (Evaluation): benchmark dataset, precision/recall/F-score comparison against baselines.
+
+---
+
+## WP3 — Section 4.2 (Table Synthesis)
+
+| # | Choice | Rationale |
+|---|---|---|
+| 20 | **Greedy partitioning instead of LP relaxation** | Paper §4.2 proves the problem is NP-hard and suggests LP+randomized rounding for O(logN) approximation. For sample-scale data the greedy heuristic is fast enough and simpler to implement. |
+| 21 | **Inverted index for candidate-pair lookup** | Avoids O(N²) pairwise computation. Only candidates sharing at least one value pair need their compatibility computed. Matches paper §4.1 efficiency discussion. |
+| 22 | **Additive positive score update after merge** | When merging partitions P1 and P2 into P', w+(P', Pk) = w+(P1, Pk) + w+(P2, Pk). Directly from Algorithm 3 line 14. |
+| 23 | **Minimum negative score update after merge** | w-(P', Pk) = min(w-(P1, Pk), w-(P2, Pk)). Takes the most negative signal. Directly from Algorithm 3 line 15. |
+| 24 | **tau default -0.2 not 0** | Paper §4.2 uses a negative threshold τ (e.g. -0.2) instead of 0 to avoid over-penalizing tables with slight inconsistency due to minor quality issues. |
+| 25 | **Approximate string matching enabled by default** | Paper §4.1 Algorithm 2. Fractional threshold fed=0.2, ked=10. Can be disabled with --no_approx for speed. |
+
+---
+
+## WP4 — Section 4.3 (Conflict Resolution)
+
+| # | Choice | Rationale |
+|---|---|---|
+| 26 | **Greedy removal instead of exact MIS** | Paper proves Conflict Resolution is NP-hard (reduction from Maximum Independent Set). The greedy approximation from Algorithm 4 is practical and matches the paper's recommended approach. |
+| 27 | **Remove by pair not by table** | We remove individual (left, right) pairs rather than entire candidate tables. Finer-grained than table-level removal — preserves more good pairs from tables that have mixed quality. |
+| 28 | **Count conflicts per pair not per table** | For each (left, right) pair, we count how many other pairs it conflicts with. The pair with the hi
