@@ -51,6 +51,9 @@ from synthesis import (
     synthesis_report,
 )
 
+from conflict_resolution import (
+    run_conflict_resolution,
+)
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -190,6 +193,15 @@ def main() -> None:
     print(f"  Time: {time.time() - t0:.2f}s\n")
 
     print("WP3 Complete! Synthesized mappings ready for WP4 (conflict resolution).")
+
+    # ---- Stage 7: Conflict Resolution (WP4) ----------------------------------
+    print(f"[Stage 7/7] Conflict resolution...")
+    t0 = time.time()
+    resolved_path = os.path.join(args.output_folder, "resolved_mappings.jsonl")
+    run_conflict_resolution(mappings_path, resolved_path)
+    print(f" Time: {time.time() - t0:.2f}s\n")
+
+    print("All stages complete!")
     print(f"Total time: {time.time() - total_start:.2f}s")
 
 
