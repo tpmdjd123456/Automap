@@ -13,8 +13,9 @@ Section 3 has two sub-steps and both are implemented here:
   columns in a table, keep only those that satisfy approximate functional
   dependency (`X →_θ Y`, θ ≥ 0.95).
 
-Sections 4 (Table Synthesis) and 5 (Conflict Resolution) are out of scope
-for this repo.
+Section 4.2 (Table Synthesis) is implemented in `synthesis.py`.
+Section 4.3 (Conflict Resolution) is implemented in `conflict_resolution.py`.
+Section 5 (Evaluation) is out of scope for this repo.
 
 ## Install
 
@@ -96,6 +97,7 @@ fd_filter.py                   Approximate-FD filter + candidate emission (WP2)
 tests/                         pytest suite (test_wp1.py, test_wp2.py)
 conftest.py                    Shared synthetic fixtures
 data/sample.json               WDC web-table sample (~30 MB)
+conflict_resolution.py         Conflict resolution pipeline (WP4)
 output/                        Pipeline outputs (gitignored)
 ```
 
