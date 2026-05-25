@@ -262,12 +262,15 @@ def build_inverted_index(
 # ---------------------------------------------------------------------------
 # Greedy partitioning  (paper §4.2, Algorithm 3)
 # ---------------------------------------------------------------------------
+from tqdm import tqdm
+from typing import List, Dict, Any, Tuple, Iterable, Set, Optional
 
 def greedy_partition(
     candidates: List[Candidate],
     tau: float = -0.2,
     theta_overlap: int = 1,
     use_approx: bool = True,
+    output_folder: str = "output"
 ) -> List[Partition]:
     """Run greedy table synthesis (Algorithm 3 from the paper).
 
@@ -342,7 +345,9 @@ def greedy_partition(
 
     positive_edges = 0
     blocking_edges = 0
-    for ci, cj in overlapping_pairs:
+    
+    # --- ADDED TQDM HERE TO TRACK INITIAL SCORE COMPUTATION ---
+    for ci, cj in tqdm(overlapping_pairs, desc="Calculating initial edge weights", unit="pair"):
         pi, pj = ci, cj  # initially pid == cand idx
         key = (pi, pj)
         bp = list(candidates[ci]["pairs"])
@@ -357,12 +362,39 @@ def greedy_partition(
             if ns < tau:
                 blocking_edges += 1
 
+# --- SAVE EDGE SCORES TO FILE ---
+    import json
+    import os
+
+    # Ensure the directory exists dynamically
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder, exist_ok=True)
+
+    scores_output_path = os.path.join(output_folder, "computed_edge_scores.jsonl")
+    print(f"  Saving computed edge weights to {os.path.abspath(scores_output_path)}...")
+    
+    all_edge_keys = set(pos_scores.keys()).union(set(neg_scores.keys()))
+    
+    with open(scores_output_path, "w", encoding="utf-8") as f:
+        for ci, cj in all_edge_keys:
+            edge_data = {
+                "cand_i": ci,
+                "cand_j": cj,
+                "w_pos": pos_scores.get((ci, cj), 0.0),
+                "w_neg": neg_scores.get((ci, cj), 0.0)
+            }
+            f.write(json.dumps(edge_data) + "\n")
+            
+    print(f"  Successfully saved {len(all_edge_keys)} edge scores to {output_folder}/")
+
     print(f"    Non-zero positive edges: {positive_edges}")
     print(f"    Blocking negative edges (w- < tau): {blocking_edges}")
     print(f"  Running greedy partitioning...")
 
     merge_count = 0
 
+    # --- ADDED TQDM HERE TO TRACK ITERATIVE MATRIX MERGING ---
+    pbar_merge = tqdm(desc="Merging partitions", unit="round")
     while True:
         # Find the best merge: highest w+(P1,P2) where w-(P1,P2) >= tau
         best_key: Optional[Tuple[int, int]] = None
@@ -387,11 +419,10 @@ def greedy_partition(
         size_i = len(part_members[pi])
         size_j = len(part_members[pj])
         merge_count += 1
-        print(
-            f"    Merge round {merge_count}: merged partition sizes "
-            f"[{size_i}, {size_j}] -> {size_i + size_j} "
-            f"(w+={best_pos:.4f}, w-={ns_best:.4f})"
-        )
+        
+        # Update progress bar statistics in real-time
+        pbar_merge.update(1)
+        pbar_merge.set_postfix({"last_w+": f"{best_pos:.3f}", "active_parts": len(part_members)})
 
         # Create new partition
         new_pid = next_pid
@@ -446,6 +477,7 @@ def greedy_partition(
         pos_scores.pop(best_key, None)
         neg_scores.pop(best_key, None)
 
+    pbar_merge.close()
     print(f"    Converged after {merge_count} merges. {len(part_members)} partitions.")
     return [sorted(members) for members in part_members.values()]
 

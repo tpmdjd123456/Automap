@@ -185,6 +185,7 @@ def main() -> None:
         tau=args.tau,
         theta_overlap=args.theta_overlap,
         use_approx=not args.no_approx,
+        output_folder=args.output_folder
     )
     synthesis_report(partitions, wp3_candidates)
     mappings_path = os.path.join(args.output_folder, "synthesized_mappings.jsonl")
