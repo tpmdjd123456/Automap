@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoMap</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --red: #C0272D;
+  --red2: #E8323A;
+  --pink: #d63ea0;
+  --white: #ffffff;
+  --offwhite: #fdf5f5;
+  --light: #fce8e8;
+  --gray: #888;
+  --dark: #1a0505;
+  --mono: 'DM Mono', monospace;
+  --sans: 'DM Sans', sans-serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior: smooth; }
+body { font-family: var(--sans); background: var(--white); color: var(--dark); overflow-x: hidden; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--light); }
+::-webkit-scrollbar-thumb { background: var(--red); }
+
+/* NAV */
+nav {
+  position: fixed; top:0; left:0; right:0; z-index:100;
+  background: var(--red); padding: 0 48px; height: 56px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.nav-brand { font-size: 22px; font-weight: 700; color: white; letter-spacing: -0.5px; }
+.nav-steps { display: flex; gap: 4px; }
+.nav-step {
+  padding: 6px 18px; font-size: 13px; font-weight: 500;
+  color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.08);
+  cursor: pointer; transition: all 0.2s; border: none;
+  font-family: var(--sans); text-decoration: none;
+  display: inline-flex; align-items: center;
+}
+.nav-step:hover { color: white; background: rgba(255,255,255,0.18); }
+.nav-step.active { color: var(--red); background: white; font-weight: 700; }
+.nav-step.done { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.15); }
+
+/* HERO */
+.hero {
+  min-height: 100vh; padding-top: 56px;
+  background: linear-gradient(135deg, var(--red) 0%, #a01020 40%, #c0272d 60%, var(--pink) 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; position: relative; overflow: hidden;
+}
+.hero::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(circle at 70% 30%, rgba(255,255,255,0.08) 0%, transparent 60%);
+}
+.hero-tag { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.6); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 24px; position: relative; }
+.hero-title { font-size: 110px; font-weight: 700; color: white; letter-spacing: -6px; line-height: 0.9; margin-bottom: 24px; position: relative; }
+.hero-sub { font-size: 20px; color: rgba(255,255,255,0.7); max-width: 500px; line-height: 1.6; margin-bottom: 48px; font-weight: 300; position: relative; }
+.hero-btn { background: white; color: var(--red); border: none; padding: 18px 56px; font-size: 16px; font-weight: 700; cursor: pointer; font-family: var(--sans); transition: all 0.2s; text-decoration: none; display: inline-block; position: relative; }
+.hero-btn:hover { background: var(--offwhite); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+.hero-scroll { position: absolute; bottom: 40px; color: rgba(255,255,255,0.4); font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.hero-scroll::after { content: '↓'; font-size: 20px; animation: bounce 1.5s infinite; }
+@keyframes bounce { 0%,100%{transform:translateY(0)}50%{transform:translateY(6px)} }
+
+/* SECTION */
+.section { padding: 80px 64px; }
+.step-badge { display: inline-flex; align-items: center; background: var(--light); border-left: 3px solid var(--red); padding: 8px 16px; margin-bottom: 20px; font-family: var(--mono); font-size: 12px; color: var(--red); letter-spacing: 2px; text-transform: uppercase; }
+.section-title { font-size: 48px; font-weight: 700; letter-spacing: -2px; line-height: 1; margin-bottom: 12px; }
+.section-title span { color: var(--red); }
+.section-desc { font-size: 16px; color: var(--gray); line-height: 1.7; max-width: 640px; margin-bottom: 40px; }
+.sub-heading { font-size: 18px; font-weight: 700; margin-bottom: 16px; letter-spacing: -0.5px; margin-top: 32px; }
+
+/* RAW TABLES */
+.raw-section { background: var(--offwhite); }
+.intro-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: #eee; margin-bottom: 48px; }
+.intro-card { background: white; padding: 28px 24px; border-bottom: 3px solid transparent; transition: border-color 0.2s; }
+.intro-card:hover { border-bottom-color: var(--red); }
+.intro-card-icon { font-size: 28px; margin-bottom: 12px; }
+.intro-card h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+.intro-card p { font-size: 13px; color: var(--gray); line-height: 1.6; }
+.intro-card .example { margin-top: 12px; padding: 10px 14px; background: var(--offwhite); font-family: var(--mono); font-size: 11px; line-height: 1.8; border-left: 2px solid var(--red); color: #444; }
+.intro-card .example .highlight { color: var(--red); font-weight: 600; }
+.raw-tables-label { font-family: var(--mono); font-size: 12px; color: var(--red); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
+.raw-tables-label::after { content: ''; flex: 1; height: 1px; background: #ddd; }
+.tables-showcase { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 48px; }
+.showcase-table { background: white; border: 1px solid #eee; opacity: 0; transform: translateY(16px); transition: all 0.5s; }
+.showcase-table.show { opacity: 1; transform: translateY(0); }
+.showcase-header { padding: 12px 20px; background: white; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+.showcase-title { font-size: 13px; font-weight: 600; color: #333; }
+.showcase-meta { font-size: 11px; color: var(--gray); font-family: var(--mono); }
+table.data-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.data-table th { padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; font-family: var(--mono); background: var(--light); color: var(--gray); border-bottom: 1px solid #eee; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.data-table th.mapping-col { background: rgba(192,39,45,0.1); color: var(--red); }
+table.data-table td { padding: 8px 12px; font-size: 12px; font-family: var(--mono); border-bottom: 1px solid #f5f5f5; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.data-table td.mapping-col { background: rgba(192,39,45,0.04); color: #222; font-weight: 500; }
+table.data-table tr:last-child td { border-bottom: none; }
+.mapping-hint { padding: 10px 16px; background: rgba(192,39,45,0.06); border-top: 1px solid rgba(192,39,45,0.15); font-size: 12px; color: var(--red); font-family: var(--mono); display: flex; align-items: center; gap: 8px; }
+.mapping-hint::before { content: '→'; font-weight: 700; }
+
+/* RUN BUTTON */
+.run-btn { background: var(--red); color: white; border: none; padding: 16px 40px; font-size: 15px; font-weight: 700; cursor: pointer; font-family: var(--sans); transition: all 0.2s; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
+.run-btn:hover { background: var(--red2); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(192,39,45,0.3); }
+.run-btn:disabled { background: #ccc; cursor: not-allowed; transform: none; box-shadow: none; }
+.run-btn .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; display: none; }
+.run-btn.loading .spinner { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* RESULTS */
+.results-box { display: none; margin-top: 32px; animation: fadeUp 0.4s ease; }
+.results-box.show { display: block; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)} }
+
+/* STATS */
+.stats-row { display: grid; gap: 2px; background: #eee; margin-bottom: 32px; }
+.stat-box { background: white; padding: 28px 24px; border-bottom: 3px solid transparent; transition: border-color 0.2s; }
+.stat-box:hover { border-bottom-color: var(--red); }
+.stat-num { font-size: 42px; font-weight: 700; color: var(--red); font-family: var(--mono); letter-spacing: -2px; line-height: 1; }
+.stat-label { font-size: 12px; color: var(--gray); margin-top: 6px; text-transform: uppercase; letter-spacing: 1px; }
+
+/* COL COMPARE */
+.col-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+.col-box { padding: 24px; border: 2px solid #eee; }
+.col-box.removed { border-color: #ffcdd2; background: #fff5f5; }
+.col-box.kept { border-color: #c8e6c9; background: #f5fff5; }
+.col-box-label { font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; font-family: var(--mono); }
+.col-box.removed .col-box-label { color: #E53935; }
+.col-box.kept .col-box-label { color: #43A047; }
+.col-values { display: flex; flex-wrap: wrap; gap: 6px; }
+.col-val { padding: 4px 10px; font-size: 12px; font-family: var(--mono); background: white; border: 1px solid #eee; }
+.col-score { margin-top: 12px; font-family: var(--mono); font-size: 13px; }
+.col-box.removed .col-score { color: #E53935; }
+.col-box.kept .col-score { color: #43A047; }
+.col-note { margin-top: 8px; font-size: 11px; color: #999; font-family: var(--mono); font-style: italic; }
+
+/* CANDIDATES */
+.candidates-list { display: flex; flex-direction: column; gap: 8px; }
+.candidate-row { display: flex; align-items: center; gap: 16px; padding: 14px 20px; background: white; border: 1px solid #eee; border-left: 3px solid var(--red); font-family: var(--mono); font-size: 13px; }
+.candidate-pairs { flex: 1; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-theta { background: var(--light); color: var(--red); padding: 3px 10px; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+
+/* MAPPINGS GRID */
+.mappings-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: #eee; }
+.mapping-card { background: white; padding: 24px; border-bottom: 3px solid transparent; transition: all 0.2s; overflow: hidden; }
+.mapping-card:hover { border-bottom-color: var(--red); background: var(--offwhite); }
+.mapping-size { font-family: var(--mono); font-size: 11px; color: var(--red); letter-spacing: 1px; margin-bottom: 16px; text-transform: uppercase; }
+.mapping-pair { display: grid; grid-template-columns: 1fr 20px 1fr; align-items: center; gap: 4px; font-family: var(--mono); font-size: 12px; color: #444; margin-bottom: 8px; }
+.mapping-pair .left { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #666; }
+.mapping-pair .arrow { color: var(--red); text-align: center; }
+.mapping-pair .right { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: #111; }
+.mapping-more { font-size: 11px; color: #bbb; font-family: var(--mono); margin-top: 8px; }
+
+/* CONFLICT - IMPROVED */
+.conflict-demo {
+  display: grid; grid-template-columns: 1fr auto 1fr; gap: 32px;
+  align-items: start; margin-bottom: 32px;
+}
+.conflict-box { background: white; border: 2px solid #eee; padding: 24px; }
+.conflict-box.before { border-color: #ffcdd2; }
+.conflict-box.after { border-color: #c8e6c9; }
+.conflict-box h4 { font-family: var(--mono); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 16px; }
+.conflict-box.before h4 { color: #E53935; }
+.conflict-box.after h4 { color: #43A047; }
+.cf-pair {
+  display: grid; grid-template-columns: 1fr 20px 1fr;
+  align-items: center; gap: 4px;
+  padding: 9px 12px; margin-bottom: 6px;
+  font-family: var(--mono); font-size: 12px;
+}
+.cf-pair .cf-left { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-pair .cf-arr { text-align: center; }
+.cf-pair .cf-right { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.cf-pair.neutral { background: #fafafa; color: #444; }
+.cf-pair.bad { background: #fff5f5; color: #E53935; text-decoration: line-through; opacity: 0.7; }
+.cf-pair.good { background: #f5fff5; color: #2E7D32; }
+.cf-arrow-mid { font-size: 28px; color: var(--red); font-weight: 700; text-align: center; padding-top: 60px; }
+.conflict-note { margin-top: 10px; font-size: 11px; font-family: var(--mono); padding: 8px 12px; }
+.conflict-box.before .conflict-note { color: #E53935; background: #fff5f5; }
+.conflict-box.after .conflict-note { color: #43A047; background: #f5fff5; }
+
+/* FINAL */
+.final-section { background: var(--red); padding: 80px 64px; }
+.final-section .section-title { color: white; }
+.final-section .section-title span { color: rgba(255,255,255,0.4); }
+.final-section .section-desc { color: rgba(255,255,255,0.6); }
+.final-section .step-badge { background: rgba(255,255,255,0.15); border-color: white; color: white; }
+.final-mappings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: rgba(255,255,255,0.1); margin-top: 40px; }
+.final-card { background: rgba(255,255,255,0.05); padding: 24px; border-bottom: 3px solid transparent; transition: all 0.2s; overflow: hidden; }
+.final-card:hover { background: rgba(255,255,255,0.1); border-bottom-color: white; }
+.final-card-size { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; }
+.final-pair { display: grid; grid-template-columns: 1fr 20px 1fr; align-items: center; gap: 4px; font-family: var(--mono); font-size: 12px; margin-bottom: 6px; }
+.final-pair .left { color: rgba(255,255,255,0.6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.final-pair .arrow { color: rgba(255,255,255,0.3); text-align: center; }
+.final-pair .right { color: white; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* FOOTER */
+footer { background: var(--dark); padding: 28px 64px; display: flex; justify-content: space-between; align-items: center; }
+footer .fl { color: rgba(255,255,255,0.5); font-size: 13px; }
+footer .fr { font-family: var(--mono); font-size: 11px; color: rgba(255,255,255,0.3); letter-spacing: 2px; }
+
+/* LOADING */
+.loading-overlay { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(192,39,45,0.97); flex-direction: column; align-items: center; justify-content: center; color: white; text-align: center; }
+.loading-overlay.show { display: flex; }
+.loading-spinner { width: 48px; height: 48px; border: 3px solid rgba(255,255,255,0.2); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 24px; }
+.loading-text { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.loading-sub { font-size: 14px; opacity: 0.6; }
+
+/* ERROR */
+.error-box { background: #fff5f5; border: 2px solid #ffcdd2; border-left: 4px solid #E53935; padding: 16px 20px; margin-top: 16px; font-size: 14px; color: #c62828; font-family: var(--mono); display: none; }
+.error-box.show { display: block; }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loadingText">Running pipeline...</div>
+  <div class="loading-sub" id="loadingSub">Please wait</div>
+</div>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-brand">AutoMap</div>
+  <div class="nav-steps">
+    <a class="nav-step active" id="nav0" href="#intro">Intro</a>
+    <a class="nav-step" id="nav1" href="#step1">Step 1: Candidate Extraction</a>
+    <a class="nav-step" id="nav2" href="#step2">Step 2: Table Synthesis</a>
+    <a class="nav-step" id="nav3" href="#step3">Step 3: Conflict Resolution</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero" id="intro">
+  <div class="hero-tag">SIGMOD 2017 · Wang & He · TU Berlin 2026</div>
+  <div class="hero-title">AutoMap</div>
+  <p class="hero-sub">Automatically discovering mapping relationships from millions of web tables.</p>
+  <a class="hero-btn" href="#data-section">▶ Start Demo</a>
+  <div class="hero-scroll">Scroll to explore</div>
+</section>
+
+<!-- DATA SECTION -->
+<section class="section raw-section" id="data-section">
+  <div class="step-badge">THE INPUT DATA</div>
+  <div class="section-title">What are we <span>working with?</span></div>
+  <p class="section-desc">The web contains billions of tables. Each has columns and rows of data — but they are messy, fragmented, and inconsistent. AutoMap mines these tables to find hidden mapping relationships automatically.</p>
+
+  <div class="intro-cards">
+    <div class="intro-card">
+      <div class="intro-card-icon">🔍</div>
+      <h3>What is a Mapping Relationship?</h3>
+      <p>A two-column table where each left value maps to exactly one right value — useful for data integration like auto-join and auto-fill.</p>
+      <div class="example">
+        Country → ISO Code<br>
+        <span class="highlight">South Korea → KOR</span><br>
+        <span class="highlight">Germany → DEU</span><br>
+        <span class="highlight">France → FRA</span>
+      </div>
+    </div>
+    <div class="intro-card">
+      <div class="intro-card-icon">⚡</div>
+      <h3>Why is it Hard?</h3>
+      <p>The same mapping exists in thousands of different tables, each using different names for the same entity. No single table is complete.</p>
+      <div class="example">
+        Table A: South Korea → KOR<br>
+        Table B: Korea, Republic of → KOR<br>
+        Table C: KOREA REPUBLIC OF → KOR<br>
+        <span class="highlight">→ All the same! But written differently.</span>
+      </div>
+    </div>
+    <div class="intro-card">
+      <div class="intro-card-icon">🎯</div>
+      <h3>The AutoMap Solution</h3>
+      <p>3 steps from the SIGMOD 2017 paper automatically extract, merge, and clean mapping relationships from raw web tables.</p>
+      <div class="example">
+        Step 1: Candidate Extraction<br>
+        Step 2: Table Synthesis<br>
+        Step 3: Conflict Resolution<br>
+        <span class="highlight">→ Clean mappings, no manual work!</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="raw-tables-label">Actual web tables from the corpus — highlighted columns are potential mapping pairs</div>
+  <div class="tables-showcase" id="tablesShowcase">
+    <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--gray);font-family:var(--mono);font-size:13px;">
+      Loading tables from corpus...
+    </div>
+  </div>
+
+  <a class="run-btn" href="#step1">Continue to Step 1: Candidate Extraction →</a>
+</section>
+
+<!-- STEP 1 -->
+<section class="section" id="step1">
+  <div class="step-badge">STEP 1 OF 3 · §3</div>
+  <div class="section-title">Candidate <span>Extraction</span></div>
+  <p class="section-desc">Two sub-steps: §3.1 filters incoherent columns using PMI coherence scoring (threshold τ = 0.3), then §3.2 keeps only column pairs satisfying approximate functional dependency (θ ≥ 0.95).</p>
+
+  <button class="run-btn" id="btn1" onclick="runStep1()">
+    <div class="spinner"></div>
+    <span class="btn-text">▶ Run Candidate Extraction</span>
+  </button>
+  <div class="error-box" id="err1"></div>
+
+  <div class="results-box" id="results1">
+    <div class="stats-row" id="stats1" style="grid-template-columns:repeat(4,1fr)"></div>
+    <div class="sub-heading">§3.1 — PMI Column Filtering</div>
+    <div class="col-compare" id="colCompare"></div>
+    <div class="sub-heading">§3.2 — Candidate Pairs Found (θ ≥ 0.95)</div>
+    <div class="candidates-list" id="candidatesList"></div>
+    <div style="margin-top:32px;">
+      <a class="run-btn" href="#step2">Continue to Step 2: Table Synthesis →</a>
+    </div>
+  </div>
+</section>
+
+<!-- STEP 2 -->
+<section class="section" id="step2" style="background:var(--offwhite);">
+  <div class="step-badge">STEP 2 OF 3 · §4</div>
+  <div class="section-title">Table <span>Synthesis</span></div>
+  <p class="section-desc">Merge compatible candidate tables into unified mapping relationships using the greedy partitioning algorithm from §4.2. Tables sharing many value pairs are merged; conflicting ones stay separate.</p>
+
+  <button class="run-btn" id="btn2" onclick="runStep2()">
+    <div class="spinner"></div>
+    <span class="btn-text">▶ Run Table Synthesis</span>
+  </button>
+  <div class="error-box" id="err2"></div>
+
+  <div class="results-box" id="results2">
+    <div class="stats-row" id="stats2" style="grid-template-columns:repeat(4,1fr)"></div>
+    <div class="sub-heading">Top Synthesized Mappings</div>
+    <div class="mappings-grid" id="mappingsGrid"></div>
+    <div style="margin-top:32px;">
+      <a class="run-btn" href="#step3">Continue to Step 3: Conflict Resolution →</a>
+    </div>
+  </div>
+</section>
+
+<!-- STEP 3 -->
+<section class="section" id="step3">
+  <div class="step-badge">STEP 3 OF 3 · §4.3</div>
+  <div class="section-title">Conflict <span>Resolution</span></div>
+  <p class="section-desc">After synthesis, some mappings contain conflicts — the same left value maps to two different right values. This happens when tables from different standards get merged. §4.3 iteratively removes the most conflicting pairs.</p>
+
+  <button class="run-btn" id="btn3" onclick="runStep3()">
+    <div class="spinner"></div>
+    <span class="btn-text">▶ Run Conflict Resolution</span>
+  </button>
+  <div class="error-box" id="err3"></div>
+
+  <div class="results-box" id="results3">
+    <div class="stats-row" id="stats3" style="grid-template-columns:repeat(3,1fr)"></div>
+    <div class="sub-heading">Example: Before & After Conflict Resolution</div>
+    <div id="conflictExamples"></div>
+    <div style="margin-top:32px;">
+      <a class="run-btn" href="#final">See Final Results →</a>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL -->
+<section class="final-section" id="final" style="display:none;">
+  <div class="step-badge">FINAL OUTPUT</div>
+  <div class="section-title">Discovered <span>Mappings</span></div>
+  <p class="section-desc">These relationships were automatically discovered from 1000 raw web tables. No labels. No manual curation.</p>
+  <div class="final-mappings" id="finalMappings"></div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="fl">AutoMap · Data Integration Project · Technische Universität Berlin · 2026</div>
+  <div class="fr">Wang & He · SIGMOD 2017</div>
+</footer>
+
+<script>
+const API = 'http://localhost:5000/api';
+
+// Nav scroll highlighting
+const navSections = [
+  {id:'intro',nav:'nav0'},{id:'data-section',nav:'nav0'},
+  {id:'step1',nav:'nav1'},{id:'step2',nav:'nav2'},
+  {id:'step3',nav:'nav3'},{id:'final',nav:'nav3'}
+];
+window.addEventListener('scroll', () => {
+  let current = 'nav0';
+  navSections.forEach(s => {
+    const el = document.getElementById(s.id);
+    if (el && el.style.display !== 'none') {
+      if (el.getBoundingClientRect().top <= 80) current = s.nav;
+    }
+  });
+  document.querySelectorAll('.nav-step').forEach(n => n.classList.remove('active'));
+  const a = document.getElementById(current);
+  if (a) a.classList.add('active');
+});
+
+function showLoading(text, sub) {
+  document.getElementById('loadingText').textContent = text;
+  document.getElementById('loadingSub').textContent = sub;
+  document.getElementById('loadingOverlay').classList.add('show');
+}
+function hideLoading() { document.getElementById('loadingOverlay').classList.remove('show'); }
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = '⚠ ' + msg; el.classList.add('show');
+}
+function trunc(str, max) {
+  if (!str) return '';
+  str = str.toString();
+  return str.length > max ? str.substring(0, max) + '…' : str;
+}
+
+// ---- AUTO LOAD RAW TABLES ----
+window.onload = async function() {
+  try {
+    const res = await fetch(API + '/raw-tables');
+    const data = await res.json();
+    const showcase = document.getElementById('tablesShowcase');
+    showcase.innerHTML = '';
+
+    data.tables.forEach((t, i) => {
+      const cols = t.columns;
+      const numRows = Math.min(cols[0]?.length || 0, 5);
+      const hint = t.mapping_hint;
+      const colW = Math.floor(100 / cols.length);
+
+      let thead = '<tr>' + cols.map((c, ci) => {
+        const m = hint && (ci === hint[0] || ci === hint[1]);
+        return `<th class="${m?'mapping-col':''}" style="width:${colW}%">Col ${ci+1}</th>`;
+      }).join('') + '</tr>';
+
+      let tbody = '';
+      for (let r = 0; r < numRows; r++) {
+        tbody += '<tr>' + cols.map((c, ci) => {
+          const m = hint && (ci === hint[0] || ci === hint[1]);
+          const v = trunc(c[r] || '', 22);
+          return `<td class="${m?'mapping-col':''}" title="${c[r]||''}">${v}</td>`;
+        }).join('') + '</tr>';
+      }
+
+      const card = document.createElement('div');
+      card.className = 'showcase-table';
+      card.innerHTML = `
+        <div class="showcase-header">
+          <div class="showcase-title">${trunc(t.title||'Web Table '+(i+1), 45)}</div>
+          <div class="showcase-meta">${t.num_cols} cols · ${t.num_rows} rows</div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="data-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+        </div>
+        ${hint ? `<div class="mapping-hint">Potential mapping: Col ${hint[0]+1} → Col ${hint[1]+1} (highlighted in red)</div>` : ''}
+      `;
+      showcase.appendChild(card);
+      setTimeout(() => card.classList.add('show'), i * 150);
+    });
+  } catch(e) {
+    document.getElementById('tablesShowcase').innerHTML = `
+      <div style="grid-column:1/-1;padding:32px;background:#fff5f5;border-left:4px solid var(--red);font-family:var(--mono);font-size:13px;color:#c62828;">
+        ⚠ Could not load tables. Make sure python server.py is running at http://localhost:5000
+      </div>`;
+  }
+};
+
+// ---- STEP 1 ----
+async function runStep1() {
+  const btn = document.getElementById('btn1');
+  btn.classList.add('loading'); btn.disabled = true;
+  document.getElementById('err1').classList.remove('show');
+  showLoading('Running Candidate Extraction...', '§3.1 PMI filtering + §3.2 FD filtering');
+  try {
+    const res = await fetch(API + '/step1');
+    const d = await res.json();
+    hideLoading(); btn.classList.remove('loading'); btn.disabled = false;
+
+    document.getElementById('stats1').innerHTML = `
+      <div class="stat-box"><div class="stat-num">${d.wp1.tables_processed}</div><div class="stat-label">Tables Processed</div></div>
+      <div class="stat-box"><div class="stat-num">${d.wp1.columns_before}</div><div class="stat-label">Columns Before</div></div>
+      <div class="stat-box"><div class="stat-num">${d.wp1.columns_removed}</div><div class="stat-label">Columns Removed</div></div>
+      <div class="stat-box"><div class="stat-num">${d.wp2.candidates_found}</div><div class="stat-label">Candidates Found</div></div>
+    `;
+
+    const re = d.wp1.removed_example;
+    const ke = d.wp1.kept_example;
+    document.getElementById('colCompare').innerHTML = `
+      <div class="col-box removed">
+        <div class="col-box-label">✗ ${re&&re.is_example?'Example of incoherent column':'Removed — incoherent'}</div>
+        <div class="col-values">${re?re.values.map(v=>`<span class="col-val">${trunc(v,18)}</span>`).join(''):''}</div>
+        <div class="col-score">NPMI score: ${re?re.score:'?'} &lt; 0.3 → REMOVED</div>
+        ${re&&re.is_example?'<div class="col-note">* Synthetic example — this WDC corpus is already pre-filtered and clean</div>':''}
+      </div>
+      <div class="col-box kept">
+        <div class="col-box-label">✓ Kept — coherent column</div>
+        <div class="col-values">${ke?ke.values.map(v=>`<span class="col-val">${trunc(v,18)}</span>`).join(''):''}</div>
+        <div class="col-score">NPMI score: ${ke?ke.score:'?'} ≥ 0.3 → KEPT</div>
+      </div>
+    `;
+
+    document.getElementById('candidatesList').innerHTML = d.wp2.sample_candidates.map(c => `
+      <div class="candidate-row">
+        <div class="candidate-pairs">${c.pairs.map(p=>`${trunc(p[0],22)} → ${trunc(p[1],22)}`).join('  ·  ')}</div>
+        <div class="candidate-theta">θ = ${c.theta}</div>
+      </div>
+    `).join('');
+
+    document.getElementById('results1').classList.add('show');
+    document.getElementById('nav1').classList.add('done');
+    document.getElementById('nav2').classList.add('active');
+  } catch(e) {
+    hideLoading(); btn.classList.remove('loading'); btn.disabled = false;
+    showError('err1', 'Could not connect to server. Make sure python server.py is running!');
+  }
+}
+
+// ---- STEP 2 ----
+async function runStep2() {
+  const btn = document.getElementById('btn2');
+  btn.classList.add('loading'); btn.disabled = true;
+  document.getElementById('err2').classList.remove('show');
+  showLoading('Running Table Synthesis...', '§4 Greedy partitioning algorithm');
+  try {
+    const res = await fetch(API + '/step2');
+    const d = await res.json();
+    hideLoading(); btn.classList.remove('loading'); btn.disabled = false;
+
+    document.getElementById('stats2').innerHTML = `
+      <div class="stat-box"><div class="stat-num">${d.total_mappings}</div><div class="stat-label">Mappings Found</div></div>
+      <div class="stat-box"><div class="stat-num">${d.multi_table_partitions}</div><div class="stat-label">Multi-table Merges</div></div>
+      <div class="stat-box"><div class="stat-num">${d.singleton_partitions}</div><div class="stat-label">Singleton Partitions</div></div>
+      <div class="stat-box"><div class="stat-num">${d.avg_pairs}</div><div class="stat-label">Avg Pairs / Mapping</div></div>
+    `;
+
+    document.getElementById('mappingsGrid').innerHTML = d.top_mappings.map(m => `
+      <div class="mapping-card">
+        <div class="mapping-size">${m.size} pairs · ${m.num_source_tables} source tables</div>
+        ${m.sample_pairs.map(p=>`
+          <div class="mapping-pair">
+            <span class="left" title="${p[0]}">${trunc(p[0],22)}</span>
+            <span class="arrow">→</span>
+            <span class="right" title="${p[1]}">${trunc(p[1],22)}</span>
+          </div>`).join('')}
+        ${m.size>4?`<div class="mapping-more">+ ${m.size-4} more pairs...</div>`:''}
+      </div>
+    `).join('');
+
+    document.getElementById('results2').classList.add('show');
+    document.getElementById('nav2').classList.add('done');
+    document.getElementById('nav3').classList.add('active');
+  } catch(e) {
+    hideLoading(); btn.classList.remove('loading'); btn.disabled = false;
+    showError('err2', 'Could not connect to server. Make sure python server.py is running!');
+  }
+}
+
+// ---- STEP 3 ----
+async function runStep3() {
+  const btn = document.getElementById('btn3');
+  btn.classList.add('loading'); btn.disabled = true;
+  document.getElementById('err3').classList.remove('show');
+  showLoading('Running Conflict Resolution...', '§4.3 Greedy conflict removal');
+  try {
+    const res = await fetch(API + '/step3');
+    const d = await res.json();
+    hideLoading(); btn.classList.remove('loading'); btn.disabled = false;
+
+    document.getElementById('stats3').innerHTML = `
+      <div class="stat-box"><div class="stat-num">${d.total_mappings}</div><div class="stat-label">Mappings Processed</div></div>
+      <div class="stat-box"><div class="stat-num">${d.mappings_with_conflicts}</div><div class="stat-label">Had Conflicts</div></div>
+      <div class="stat-box"><div class="stat-num">${d.total_pairs_removed}</div><div class="stat-label">Pairs Removed</div></div>
+    `;
+
+    const ex = d.conflict_examples;
+    if (ex && ex.length > 0) {
+      const e = ex[0];
+      // Build before: show all original pairs, highlighting removed ones in red
+      const removedSet = new Set(e.removed_pairs.map(p => p[0]+'|||'+p[1]));
+      const beforeHtml = e.before_pairs.map(p => {
+        const isRemoved = removedSet.has(p[0]+'|||'+p[1]);
+        return `<div class="cf-pair ${isRemoved?'bad':'neutral'}">
+          <span class="cf-left" title="${p[0]}">${trunc(p[0],24)}</span>
+          <span class="cf-arr">→</span>
+          <span class="cf-right" title="${p[1]}">${trunc(p[1],24)}</span>
+        </div>`;
+      }).join('');
+      const afterHtml = e.after_pairs.map(p => `
+        <div class="cf-pair good">
+          <span class="cf-left" title="${p[0]}">${trunc(p[0],24)}</span>
+          <span class="cf-arr">→</span>
+          <span class="cf-right" title="${p[1]}">${trunc(p[1],24)}</span>
+        </div>`).join('');
+
+      document.getElementById('conflictExamples').innerHTML = `
+        <div class="conflict-demo">
+          <div class="conflict-box before">
+            <h4>⚠ Before Resolution</h4>
+            ${beforeHtml}
+            <div class="conflict-note">${e.pairs_removed} pair(s) crossed out — same left value, different right values</div>
+          </div>
+          <div class="cf-arrow-mid">→</div>
+          <div class="conflict-box after">
+            <h4>✓ After Resolution</h4>
+            ${afterHtml}
+            <div class="conflict-note">${e.pairs_kept} clean pairs kept — no conflicts remain</div>
+          </div>
+        </div>
+      `;
+    } else {
+      document.getElementById('conflictExamples').innerHTML = `
+        <p style="color:var(--gray);font-style:italic;padding:20px 0;">No conflicts found in this chunk — data is clean!</p>`;
+    }
+
+    document.getElementById('results3').classList.add('show');
+    document.getElementById('nav3').classList.add('done');
+
+    const finalSection = document.getElementById('final');
+    finalSection.style.display = 'block';
+    document.getElementById('finalMappings').innerHTML = d.top_mappings.map(m => `
+      <div class="final-card">
+        <div class="final-card-size">${m.size} pairs · ${m.num_conflicts_removed} conflicts removed</div>
+        ${m.sample_pairs.map(p=>`
+          <div class="final-pair">
+            <span class="left" title="${p[0]}">${trunc(p[0],22)}</span>
+            <span class="arrow">→</span>
+            <span class="right" title="${p[1]}">${trunc(p[1],22)}</span>
+          </div>`).join('')}
+      </div>
+    `).join('');
+
+  } catch(e) {
+    hideLoading(); btn.classList.remove('loading'); btn.disabled = false;
+    showError('err3', 'Could not connect to server. Make sure python server.py is running!');
+  }
+}
+</script>
+</body>
+</html>
