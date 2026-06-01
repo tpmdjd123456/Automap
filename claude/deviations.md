@@ -97,3 +97,20 @@ designed against the paper directly. Notable choices:
 ## Key finding on 1000-table corpus
 
 Both approaches removed exactly 302 pairs from 52 conflicting mappings, but disagreed on which specific pairs to keep in 51 out of 52 cases. This confirms the two algorithms are genuinely different — consistent with the paper's claim that Algorithm 4 achieves slightly higher F1 score than majority voting.
+
+---
+
+## Synonym Detection — §4.1 improvement
+
+| # | Choice | Rationale |
+|---|---|---|
+| 34 | **Union-find for transitive closure** | If A=B and B=C then A=C automatically. Simple dict-based approach would miss transitive synonyms. |
+| 35 | **Case-insensitive matching** | All values normalized to lowercase before lookup. Real tables use inconsistent casing. |
+| 36 | **CSV-based custom synonyms** | Users can add domain-specific synonyms without changing code. Generic built-ins cover common cases. |
+| 37 | **Separate from synthesis** | synonym_detector.py is standalone — can be used independently or plugged into synthesis. |
+
+## Key finding
+
+Without synonyms: two tables about country→continent had 1/3 exact matches (33% compatibility).
+With synonyms: same tables had 3/3 matches (100% compatibility).
+Synonym detection significantly improves recall for tables using different name variants.
