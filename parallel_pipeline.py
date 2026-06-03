@@ -24,6 +24,7 @@ from typing import List, Tuple, Optional
 
 from npmi import compute_coherence
 from fd_filter import compute_approx_fd
+from synthesis import positive_score, negative_score
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +87,35 @@ def _fd_filter_worker(args: Tuple) -> List[dict]:
                     "source_metadata": metadata,
                 })
     return candidates
+
+
+# ---------------------------------------------------------------------------
+# Parallel WP3 initial scoring (see specs/2026-06-03-parallel-wp3-...)
+# ---------------------------------------------------------------------------
+
+# Module-level globals populated in each worker process by
+# `_init_scoring_worker`. They stay None in the parent.
+_CANDIDATES = None
+_USE_APPROX = None
+
+
+def _init_scoring_worker(candidates, use_approx):
+    """Pool initializer: stash candidates and use_approx in worker globals
+    so per-task args can be just `(ci, cj)`."""
+    global _CANDIDATES, _USE_APPROX
+    _CANDIDATES = candidates
+    _USE_APPROX = use_approx
+
+
+def _score_edge_worker(edge):
+    """Score one overlap edge. Reads from module globals set by
+    `_init_scoring_worker`. Returns `(ci, cj, pos, neg)`."""
+    ci, cj = edge
+    bp = list(_CANDIDATES[ci]["pairs"])
+    bq = list(_CANDIDATES[cj]["pairs"])
+    ps = positive_score(bp, bq, use_approx=_USE_APPROX)
+    ns = negative_score(bp, bq, use_approx=_USE_APPROX)
+    return ci, cj, ps, ns
 
 
 # ---------------------------------------------------------------------------
