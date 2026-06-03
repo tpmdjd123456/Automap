@@ -265,6 +265,37 @@ def build_inverted_index(
 from tqdm import tqdm
 from typing import List, Dict, Any, Tuple, Iterable, Set, Optional
 
+
+def _build_overlap_set(
+    pair_index: Dict[Tuple[str, str], List[int]],
+    left_index: Dict[str, List[int]],
+) -> Set[Tuple[int, int]]:
+    """Union of all candidate-index pairs that share either an exact (l,r)
+    pair (via pair_index) or an exact left value (via left_index).
+    Returned as ordered tuples (a, b) with a < b.
+    """
+    overlapping: Set[Tuple[int, int]] = set()
+    for indices in pair_index.values():
+        if len(indices) < 2:
+            continue
+        for x in range(len(indices)):
+            for y in range(x + 1, len(indices)):
+                a, b = indices[x], indices[y]
+                if a > b:
+                    a, b = b, a
+                overlapping.add((a, b))
+    for indices in left_index.values():
+        if len(indices) < 2:
+            continue
+        for x in range(len(indices)):
+            for y in range(x + 1, len(indices)):
+                a, b = indices[x], indices[y]
+                if a > b:
+                    a, b = b, a
+                overlapping.add((a, b))
+    return overlapping
+
+
 def greedy_partition(
     candidates: List[Candidate],
     tau: float = -0.2,
@@ -318,25 +349,7 @@ def greedy_partition(
 
     # Find candidate pairs with overlap via inverted index
     # pair (ci, cj) where ci < cj
-    overlapping_pairs: Set[Tuple[int, int]] = set()
-    for indices in pair_index.values():
-        if len(indices) < 2:
-            continue
-        for x in range(len(indices)):
-            for y in range(x + 1, len(indices)):
-                a, b = indices[x], indices[y]
-                if a > b:
-                    a, b = b, a
-                overlapping_pairs.add((a, b))
-    for indices in left_index.values():
-        if len(indices) < 2:
-            continue
-        for x in range(len(indices)):
-            for y in range(x + 1, len(indices)):
-                a, b = indices[x], indices[y]
-                if a > b:
-                    a, b = b, a
-                overlapping_pairs.add((a, b))
+    overlapping_pairs = _build_overlap_set(pair_index, left_index)
 
     # partition-pair score tables: key = frozenset({pid1, pid2})
     # We use tuple (min, max) for ordered key
