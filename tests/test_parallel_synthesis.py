@@ -61,3 +61,34 @@ def test_parallel_n_workers_one(synthesis_candidates, tmp_path):
         output_folder=str(tmp_path / "par"),
     )
     assert _canonical(par) == _canonical(seq)
+
+
+def _trivial(idx, pairs):
+    return {"pairs":[tuple(p) for p in pairs],"theta":1.0,
+            "row_count":len(pairs),"covered_rows":len(pairs),
+            "source_table_index":idx,"left_column_index":0,
+            "right_column_index":1,"source_metadata":{}}
+
+
+def test_parallel_empty(tmp_path):
+    """Zero candidates → empty partition list, no Pool created."""
+    assert parallel_greedy_partition([], n_workers=2, output_folder=str(tmp_path)) == []
+
+
+def test_parallel_single_candidate(tmp_path):
+    """One candidate → one singleton partition."""
+    cands = [_trivial(0, [("a", "x"), ("b", "y"), ("c", "z")])]
+    result = parallel_greedy_partition(cands, n_workers=2, output_folder=str(tmp_path))
+    assert _canonical(result) == [[0]]
+
+
+def test_parallel_no_overlap(tmp_path):
+    """Candidates with no shared pairs or left values → all singletons."""
+    cands = [
+        _trivial(0, [("a", "x"), ("b", "y"), ("c", "z")]),
+        _trivial(1, [("d", "p"), ("e", "q"), ("f", "r")]),
+        _trivial(2, [("g", "m"), ("h", "n"), ("i", "o")]),
+    ]
+    seq = greedy_partition(cands, output_folder=str(tmp_path / "seq"))
+    par = parallel_greedy_partition(cands, n_workers=2, output_folder=str(tmp_path / "par"))
+    assert _canonical(par) == _canonical(seq) == [[0], [1], [2]]
