@@ -78,3 +78,45 @@ def fd_synthetic_table():
         ["yes",    "yes",    "no",     "yes",   "yes",     "no",     "yes",      "no"],
         ["A",      "A",      "A",      "A",     "A",       "A",      "A",        "A"],
     ])
+
+
+@pytest.fixture
+def synthesis_candidates():
+    """Hand-crafted 8 candidates for synthesis tests.
+
+    Designed to exercise:
+      - perfect merge (0 ↔ 3, identical pairs)
+      - partial overlap (0 ↔ 1, two shared pairs)
+      - conflict / negative score (0 ↔ 2, same lefts, different rights)
+      - isolated singletons (4, 7 — share nothing)
+      - identity / degenerate (5 — left == right per pair)
+      - rank-numeric (6 — numeric left, won't merge)
+      - no-overlap baseline (0 ↔ 6 share zero pairs despite both having "1" in them)
+
+    Each candidate is a dict matching what `load_candidates` returns:
+    `{"pairs": [(l, r), ...], "theta": float, "row_count": int,
+      "covered_rows": int, "source_table_index": int,
+      "left_column_index": int, "right_column_index": int,
+      "source_metadata": {}}`.
+    """
+    def mk(idx, pairs):
+        return {
+            "pairs": [tuple(p) for p in pairs],
+            "theta": 1.0,
+            "row_count": len(pairs),
+            "covered_rows": len(pairs),
+            "source_table_index": idx,
+            "left_column_index": 0,
+            "right_column_index": 1,
+            "source_metadata": {},
+        }
+    return [
+        mk(0, [("dune", "herbert"), ("foundation", "asimov"), ("1984", "orwell")]),
+        mk(1, [("dune", "herbert"), ("ender", "card"), ("foundation", "asimov")]),
+        mk(2, [("dune", "1965"), ("foundation", "1951"), ("1984", "1949")]),
+        mk(3, [("dune", "herbert"), ("foundation", "asimov"), ("1984", "orwell")]),
+        mk(4, [("france", "paris"), ("japan", "tokyo"), ("egypt", "cairo")]),
+        mk(5, [("alpha", "alpha"), ("beta", "beta"), ("gamma", "gamma")]),
+        mk(6, [("1", "100"), ("2", "200"), ("3", "300")]),
+        mk(7, [("red", "warm"), ("blue", "cool"), ("green", "neutral")]),
+    ]
