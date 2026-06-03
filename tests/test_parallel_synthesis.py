@@ -44,3 +44,20 @@ def test_parallel_equals_sequential(synthesis_candidates, tmp_path, n_workers):
         output_folder=str(tmp_path / "par"),
     )
     assert _canonical(par) == _canonical(seq)
+
+
+def test_parallel_n_workers_one(synthesis_candidates, tmp_path):
+    """n_workers=1 routes through the parallel code path (still uses a
+    Pool) and produces the same output."""
+    seq = greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        output_folder=str(tmp_path / "seq"),
+    )
+    par = parallel_greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        n_workers=1, chunk_size=2,
+        output_folder=str(tmp_path / "par"),
+    )
+    assert _canonical(par) == _canonical(seq)
