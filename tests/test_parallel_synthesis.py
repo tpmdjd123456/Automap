@@ -1,7 +1,10 @@
 """Tests for parallel WP3 (initial-scoring) — see
 docs/superpowers/specs/2026-06-03-parallel-wp3-initial-scoring-design.md."""
 
+import pytest
+
 from synthesis import greedy_partition
+from parallel_pipeline import parallel_greedy_partition
 
 # Captured from a sequential run of greedy_partition on the
 # synthesis_candidates fixture BEFORE the refactor. This pins the current
@@ -23,3 +26,21 @@ def test_refactor_preserves_behavior(synthesis_candidates, tmp_path):
         output_folder=str(tmp_path),
     )
     assert _canonical(actual) == EXPECTED_PARTITIONS
+
+
+@pytest.mark.parametrize("n_workers", [2, 4])
+def test_parallel_equals_sequential(synthesis_candidates, tmp_path, n_workers):
+    """parallel_greedy_partition must produce the same partitions as
+    greedy_partition for any input — bit-identical, no tie-break drift."""
+    seq = greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        output_folder=str(tmp_path / "seq"),
+    )
+    par = parallel_greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        n_workers=n_workers, chunk_size=2,
+        output_folder=str(tmp_path / "par"),
+    )
+    assert _canonical(par) == _canonical(seq)
