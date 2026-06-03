@@ -338,66 +338,24 @@ def _compute_initial_scores(
     return pos_scores, neg_scores, positive_edges, blocking_edges
 
 
-def greedy_partition(
+def _run_merge_loop(
     candidates: List[Candidate],
-    tau: float = -0.2,
-    theta_overlap: int = 1,
-    use_approx: bool = True,
-    output_folder: str = "output"
+    pos_scores: Dict[Tuple[int, int], float],
+    neg_scores: Dict[Tuple[int, int], float],
+    tau: float,
+    theta_overlap: int,
+    output_folder: str,
 ) -> List[Partition]:
-    """Run greedy table synthesis (Algorithm 3 from the paper).
-
-    Args:
-        candidates: list of candidate dicts from WP2 (candidates.jsonl).
-        tau: negative-weight threshold; merges where ``w- < tau`` are
-            blocked (default -0.2 per paper §4.2).
-        theta_overlap: minimum shared value pairs to consider a candidate
-            pair at all (efficiency filter, default 1).
-        use_approx: whether to use approximate string matching.
-
-    Returns:
-        List of partitions.  Each partition is a list of candidate indices
-        (into the input ``candidates`` list) that belong to the same
-        synthesized mapping relationship.  Every candidate appears in
-        exactly one partition.
+    """The greedy merge loop. Mutates `pos_scores`/`neg_scores` as
+    partitions merge. Writes `computed_edge_scores.jsonl` to
+    `output_folder` (as in the existing code).
     """
     n = len(candidates)
-    if n == 0:
-        return []
-
-    print(f"  Building inverted index...")
-    pair_index, left_index = build_inverted_index(candidates)
-    print(f"    pair_index: {len(pair_index)} unique pairs")
-    print(f"    left_index: {len(left_index)} unique left values")
-
-    # ------------------------------------------------------------------
-    # Each partition is identified by an integer ID.
-    # part_members[pid] = set of candidate indices in that partition
-    # part_id[cand_idx] = which partition id contains this candidate
-    # ------------------------------------------------------------------
     part_members: Dict[int, List[int]] = {i: [i] for i in range(n)}
-    # For score computation we need the union of pairs for each partition
     part_pairs: Dict[int, List[Tuple[str, str]]] = {
         i: list(candidates[i]["pairs"]) for i in range(n)
     }
-    next_pid = n  # monotonically increasing partition IDs
-
-    # ------------------------------------------------------------------
-    # Compute initial pairwise scores using the inverted index
-    # pos_scores[(a,b)] = w+   (a < b by convention)
-    # neg_scores[(a,b)] = w-
-    # ------------------------------------------------------------------
-    print(f"  Computing initial compatibility graph...")
-
-    # Find candidate pairs with overlap via inverted index
-    # pair (ci, cj) where ci < cj
-    overlapping_pairs = _build_overlap_set(pair_index, left_index)
-
-    # partition-pair score tables: key = frozenset({pid1, pid2})
-    # We use tuple (min, max) for ordered key
-    pos_scores, neg_scores, positive_edges, blocking_edges = _compute_initial_scores(
-        overlapping_pairs, candidates, use_approx
-    )
+    next_pid = n
 
 # --- SAVE EDGE SCORES TO FILE ---
     import json
@@ -409,9 +367,9 @@ def greedy_partition(
 
     scores_output_path = os.path.join(output_folder, "computed_edge_scores.jsonl")
     print(f"  Saving computed edge weights to {os.path.abspath(scores_output_path)}...")
-    
+
     all_edge_keys = set(pos_scores.keys()).union(set(neg_scores.keys()))
-    
+
     with open(scores_output_path, "w", encoding="utf-8") as f:
         for ci, cj in all_edge_keys:
             edge_data = {
@@ -421,12 +379,8 @@ def greedy_partition(
                 "w_neg": neg_scores.get((ci, cj), 0.0)
             }
             f.write(json.dumps(edge_data) + "\n")
-            
-    print(f"  Successfully saved {len(all_edge_keys)} edge scores to {output_folder}/")
 
-    print(f"    Non-zero positive edges: {positive_edges}")
-    print(f"    Blocking negative edges (w- < tau): {blocking_edges}")
-    print(f"  Running greedy partitioning...")
+    print(f"  Successfully saved {len(all_edge_keys)} edge scores to {output_folder}/")
 
     merge_count = 0
 
@@ -456,7 +410,7 @@ def greedy_partition(
         size_i = len(part_members[pi])
         size_j = len(part_members[pj])
         merge_count += 1
-        
+
         # Update progress bar statistics in real-time
         pbar_merge.update(1)
         pbar_merge.set_postfix({"last_w+": f"{best_pos:.3f}", "active_parts": len(part_members)})
@@ -517,6 +471,52 @@ def greedy_partition(
     pbar_merge.close()
     print(f"    Converged after {merge_count} merges. {len(part_members)} partitions.")
     return [sorted(members) for members in part_members.values()]
+
+
+def greedy_partition(
+    candidates: List[Candidate],
+    tau: float = -0.2,
+    theta_overlap: int = 1,
+    use_approx: bool = True,
+    output_folder: str = "output"
+) -> List[Partition]:
+    """Run greedy table synthesis (Algorithm 3 from the paper).
+
+    Args:
+        candidates: list of candidate dicts from WP2 (candidates.jsonl).
+        tau: negative-weight threshold; merges where ``w- < tau`` are
+            blocked (default -0.2 per paper §4.2).
+        theta_overlap: minimum shared value pairs to consider a candidate
+            pair at all (efficiency filter, default 1).
+        use_approx: whether to use approximate string matching.
+
+    Returns:
+        List of partitions.  Each partition is a list of candidate indices
+        (into the input ``candidates`` list) that belong to the same
+        synthesized mapping relationship.  Every candidate appears in
+        exactly one partition.
+    """
+    n = len(candidates)
+    if n == 0:
+        return []
+
+    print(f"  Building inverted index...")
+    pair_index, left_index = build_inverted_index(candidates)
+    print(f"    pair_index: {len(pair_index)} unique pairs")
+    print(f"    left_index: {len(left_index)} unique left values")
+
+    print(f"  Computing initial compatibility graph...")
+    overlapping_pairs = _build_overlap_set(pair_index, left_index)
+    pos_scores, neg_scores, positive_edges, blocking_edges = _compute_initial_scores(
+        overlapping_pairs, candidates, use_approx
+    )
+    print(f"    Non-zero positive edges: {positive_edges}")
+    print(f"    Blocking negative edges (w- < tau): {blocking_edges}")
+    print(f"  Running greedy partitioning...")
+
+    return _run_merge_loop(
+        candidates, pos_scores, neg_scores, tau, theta_overlap, output_folder
+    )
 
 
 # ---------------------------------------------------------------------------
