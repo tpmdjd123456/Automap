@@ -296,6 +296,48 @@ def _build_overlap_set(
     return overlapping
 
 
+def _compute_initial_scores(
+    overlapping_pairs: Set[Tuple[int, int]],
+    candidates: List[Candidate],
+    use_approx: bool,
+) -> Tuple[Dict[Tuple[int, int], float], Dict[Tuple[int, int], float], int, int]:
+    """Compute positive and negative scores for every overlap edge.
+
+    Iterates `sorted(overlapping_pairs)` so the resulting dicts have
+    deterministic insertion order — important because the greedy merge
+    loop scans `pos_scores.items()` to find the maximum, and tie-breaks
+    depend on iteration order.
+
+    Returns: (pos_scores, neg_scores, positive_edges, blocking_edges).
+    `blocking_edges` here is the count where `ns < -0.2` — kept for
+    parity with the existing summary print. The merge loop applies the
+    real `tau` threshold itself.
+    """
+    pos_scores: Dict[Tuple[int, int], float] = {}
+    neg_scores: Dict[Tuple[int, int], float] = {}
+    positive_edges = 0
+    blocking_edges = 0
+    for ci, cj in tqdm(
+        sorted(overlapping_pairs),
+        total=len(overlapping_pairs),
+        desc="Calculating initial edge weights",
+        unit="pair",
+    ):
+        key = (ci, cj)
+        bp = list(candidates[ci]["pairs"])
+        bq = list(candidates[cj]["pairs"])
+        ps = positive_score(bp, bq, use_approx=use_approx)
+        ns = negative_score(bp, bq, use_approx=use_approx)
+        if ps > 0:
+            pos_scores[key] = ps
+            positive_edges += 1
+        if ns < 0:
+            neg_scores[key] = ns
+            if ns < -0.2:
+                blocking_edges += 1
+    return pos_scores, neg_scores, positive_edges, blocking_edges
+
+
 def greedy_partition(
     candidates: List[Candidate],
     tau: float = -0.2,
@@ -353,27 +395,9 @@ def greedy_partition(
 
     # partition-pair score tables: key = frozenset({pid1, pid2})
     # We use tuple (min, max) for ordered key
-    pos_scores: Dict[Tuple[int, int], float] = {}
-    neg_scores: Dict[Tuple[int, int], float] = {}
-
-    positive_edges = 0
-    blocking_edges = 0
-    
-    # --- ADDED TQDM HERE TO TRACK INITIAL SCORE COMPUTATION ---
-    for ci, cj in tqdm(overlapping_pairs, desc="Calculating initial edge weights", unit="pair"):
-        pi, pj = ci, cj  # initially pid == cand idx
-        key = (pi, pj)
-        bp = list(candidates[ci]["pairs"])
-        bq = list(candidates[cj]["pairs"])
-        ps = positive_score(bp, bq, use_approx=use_approx)
-        ns = negative_score(bp, bq, use_approx=use_approx)
-        if ps > 0:
-            pos_scores[key] = ps
-            positive_edges += 1
-        if ns < 0:
-            neg_scores[key] = ns
-            if ns < tau:
-                blocking_edges += 1
+    pos_scores, neg_scores, positive_edges, blocking_edges = _compute_initial_scores(
+        overlapping_pairs, candidates, use_approx
+    )
 
 # --- SAVE EDGE SCORES TO FILE ---
     import json
