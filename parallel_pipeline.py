@@ -22,6 +22,8 @@ import time
 import multiprocessing as mp
 from typing import List, Tuple, Optional
 
+from tqdm import tqdm
+
 from npmi import compute_coherence
 from fd_filter import compute_approx_fd
 from synthesis import positive_score, negative_score
@@ -288,6 +290,90 @@ def demo(corpus_path: str = "dev_chunks/chunk_1_mini_1000.json") -> None:
 
     print("\nRunning benchmark...")
     benchmark(corpus, index)
+
+
+def parallel_compute_initial_scores(
+    overlapping_pairs,
+    candidates,
+    use_approx,
+    n_workers=None,
+    chunk_size=1000,
+):
+    """Parallel drop-in for synthesis._compute_initial_scores.
+
+    Returns (pos_scores, neg_scores, positive_edges, blocking_edges)
+    — same shape as the sequential helper, bit-identical output.
+    """
+    if n_workers is None:
+        n_workers = mp.cpu_count()
+
+    edges = sorted(overlapping_pairs)  # deterministic order
+    pos_scores = {}
+    neg_scores = {}
+    positive_edges = 0
+    blocking_edges = 0
+
+    with mp.Pool(
+        processes=n_workers,
+        initializer=_init_scoring_worker,
+        initargs=(candidates, use_approx),
+    ) as pool:
+        for ci, cj, ps, ns in tqdm(
+            pool.imap(_score_edge_worker, edges, chunksize=chunk_size),
+            total=len(edges),
+            desc="Calculating initial edge weights (parallel)",
+            unit="pair",
+        ):
+            key = (ci, cj)
+            if ps > 0:
+                pos_scores[key] = ps
+                positive_edges += 1
+            if ns < 0:
+                neg_scores[key] = ns
+                if ns < -0.2:
+                    blocking_edges += 1
+
+    return pos_scores, neg_scores, positive_edges, blocking_edges
+
+
+def parallel_greedy_partition(
+    candidates,
+    tau=-0.2,
+    theta_overlap=1,
+    use_approx=True,
+    n_workers=None,
+    chunk_size=1000,
+    output_folder="output",
+):
+    """Parallel sibling of synthesis.greedy_partition.
+
+    Identical orchestration; the initial-score computation is parallelized.
+    Output is bit-identical to greedy_partition for any input.
+    """
+    from synthesis import build_inverted_index, _build_overlap_set, _run_merge_loop
+
+    n = len(candidates)
+    if n == 0:
+        return []
+
+    print(f"  Building inverted index...")
+    pair_index, left_index = build_inverted_index(candidates)
+    print(f"    pair_index: {len(pair_index)} unique pairs")
+    print(f"    left_index: {len(left_index)} unique left values")
+
+    print(f"  Computing initial compatibility graph (parallel, {n_workers or mp.cpu_count()} workers)...")
+    overlapping_pairs = _build_overlap_set(pair_index, left_index)
+    pos_scores, neg_scores, positive_edges, blocking_edges = parallel_compute_initial_scores(
+        overlapping_pairs, candidates, use_approx,
+        n_workers=n_workers, chunk_size=chunk_size,
+    )
+    print(f"    Non-zero positive edges: {positive_edges}")
+    print(f"    Blocking negative edges (w- < tau): {blocking_edges}")
+    print(f"  Running greedy partitioning...")
+
+    return _run_merge_loop(
+        candidates, pos_scores, neg_scores, tau, theta_overlap, output_folder
+    )
 
 
 if __name__ == "__main__":
