@@ -86,6 +86,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--theta_overlap", type=int, default=1,
                    help="WP3 minimum shared pairs to consider a candidate pair "
                         "(default 1)")
+    p.add_argument("--parallel_workers", type=int, default=1,
+                   help="Run WP3 initial scoring in parallel with N workers "
+                        "(default 1 = sequential). Recommended on dama: 14 "
+                        "(one per physical core); on laptop: 6.")
     return p.parse_args()
 
 
@@ -180,13 +184,24 @@ def main() -> None:
     t0 = time.time()
     wp3_candidates = load_wp3_candidates(candidates_path)
     print(f"  Loaded {len(wp3_candidates)} candidates")
-    partitions = greedy_partition(
-        wp3_candidates,
-        tau=args.tau,
-        theta_overlap=args.theta_overlap,
-        use_approx=not args.no_approx,
-        output_folder=args.output_folder
-    )
+    if args.parallel_workers > 1:
+        from parallel_pipeline import parallel_greedy_partition
+        partitions = parallel_greedy_partition(
+            wp3_candidates,
+            tau=args.tau,
+            theta_overlap=args.theta_overlap,
+            use_approx=not args.no_approx,
+            n_workers=args.parallel_workers,
+            output_folder=args.output_folder,
+        )
+    else:
+        partitions = greedy_partition(
+            wp3_candidates,
+            tau=args.tau,
+            theta_overlap=args.theta_overlap,
+            use_approx=not args.no_approx,
+            output_folder=args.output_folder,
+        )
     synthesis_report(partitions, wp3_candidates)
     mappings_path = os.path.join(args.output_folder, "synthesized_mappings.jsonl")
     save_synthesized_mappings(partitions, wp3_candidates, mappings_path)
