@@ -92,3 +92,19 @@ def test_parallel_no_overlap(tmp_path):
     seq = greedy_partition(cands, output_folder=str(tmp_path / "seq"))
     par = parallel_greedy_partition(cands, n_workers=2, output_folder=str(tmp_path / "par"))
     assert _canonical(par) == _canonical(seq) == [[0], [1], [2]]
+
+
+def test_parallel_determinism(synthesis_candidates, tmp_path):
+    """Running the parallel path twice on identical input produces
+    identical output (independent from parallel-vs-sequential equality)."""
+    run1 = parallel_greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        n_workers=4, chunk_size=2, output_folder=str(tmp_path / "r1"),
+    )
+    run2 = parallel_greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        n_workers=4, chunk_size=2, output_folder=str(tmp_path / "r2"),
+    )
+    assert _canonical(run1) == _canonical(run2)
