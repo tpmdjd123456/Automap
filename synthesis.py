@@ -397,58 +397,32 @@ def _connected_components(
     return sorted(buckets.values(), key=lambda s: min(s))
 
 
-def _run_merge_loop(
+def _greedy_merge_component(
     candidates: List[Candidate],
+    component: Set[int],
     pos_scores: Dict[Tuple[int, int], float],
     neg_scores: Dict[Tuple[int, int], float],
     tau: float,
-    theta_overlap: int,
-    output_folder: str,
 ) -> List[Partition]:
-    """The greedy merge loop. Mutates `pos_scores`/`neg_scores` as
-    partitions merge. Writes `computed_edge_scores.jsonl` to
-    `output_folder` (as in the existing code).
+    """Run the greedy merge loop on a single positive-edge component.
+
+    Mutates the provided ``pos_scores`` / ``neg_scores`` dicts as it
+    merges; do not reuse them after the call. ``component`` holds the
+    candidate indices in this subgraph; partition state is initialized
+    only for those indices.
     """
-    n = len(candidates)
-    part_members: Dict[int, List[int]] = {i: [i] for i in range(n)}
+    part_members: Dict[int, List[int]] = {i: [i] for i in component}
     part_pairs: Dict[int, List[Tuple[str, str]]] = {
-        i: list(candidates[i]["pairs"]) for i in range(n)
+        i: list(candidates[i]["pairs"]) for i in component
     }
-    next_pid = n
-
-# --- SAVE EDGE SCORES TO FILE ---
-    import json
-    import os
-
-    # Ensure the directory exists dynamically
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder, exist_ok=True)
-
-    scores_output_path = os.path.join(output_folder, "computed_edge_scores.jsonl")
-    print(f"  Saving computed edge weights to {os.path.abspath(scores_output_path)}...")
-
-    all_edge_keys = set(pos_scores.keys()).union(set(neg_scores.keys()))
-
-    with open(scores_output_path, "w", encoding="utf-8") as f:
-        for ci, cj in all_edge_keys:
-            edge_data = {
-                "cand_i": ci,
-                "cand_j": cj,
-                "w_pos": pos_scores.get((ci, cj), 0.0),
-                "w_neg": neg_scores.get((ci, cj), 0.0)
-            }
-            f.write(json.dumps(edge_data) + "\n")
-
-    print(f"  Successfully saved {len(all_edge_keys)} edge scores to {output_folder}/")
+    next_pid = max(component) + 1
 
     merge_count = 0
-
-    # --- ADDED TQDM HERE TO TRACK ITERATIVE MATRIX MERGING ---
     pbar_merge = tqdm(desc="Merging partitions", unit="round")
     while True:
-        # Find the best merge: highest w+(P1,P2) where w-(P1,P2) >= tau
         best_key: Optional[Tuple[int, int]] = None
         best_pos: float = -1.0
+        ns_best: float = 0.0
 
         for key, ps in pos_scores.items():
             if ps <= best_pos:
@@ -460,25 +434,22 @@ def _run_merge_loop(
             if ns >= tau:
                 best_key = key
                 best_pos = ps
+                ns_best = ns
 
         if best_key is None:
             break
 
         pi, pj = best_key
-        ns_best = neg_scores.get(best_key, 0.0)
-        size_i = len(part_members[pi])
-        size_j = len(part_members[pj])
-        merge_count += 1
-
-        # Update progress bar statistics in real-time
-        pbar_merge.update(1)
-        pbar_merge.set_postfix({"last_w+": f"{best_pos:.3f}", "active_parts": len(part_members)})
-
-        # Create new partition
         new_pid = next_pid
         next_pid += 1
         new_members = part_members[pi] + part_members[pj]
-        # Union of pairs (deduplicated for scoring; synthesis deduplicates separately)
+        size_i = len(part_members[pi])
+        size_j = len(part_members[pj])
+        merge_count += 1
+        pbar_merge.update(1)
+        pbar_merge.set_postfix({"last_w+": f"{best_pos:.3f}",
+                                "active_parts": len(part_members)})
+
         seen: Set[Tuple[str, str]] = set()
         new_pairs: List[Tuple[str, str]] = []
         for pair in part_pairs[pi] + part_pairs[pj]:
@@ -490,7 +461,6 @@ def _run_merge_loop(
         part_members[new_pid] = new_members
         part_pairs[new_pid] = new_pairs
 
-        # Update scores for new_pid vs all remaining partitions
         remaining = [
             pid for pid in part_members
             if pid != pi and pid != pj and pid != new_pid
@@ -513,13 +483,11 @@ def _run_merge_loop(
             if new_neg < 0:
                 neg_scores[key_nk] = new_neg
 
-            # Clean up old keys
             pos_scores.pop(key_ik, None)
             pos_scores.pop(key_jk, None)
             neg_scores.pop(key_ik, None)
             neg_scores.pop(key_jk, None)
 
-        # Remove old partition entries and the merged key
         del part_members[pi]
         del part_members[pj]
         del part_pairs[pi]
@@ -528,8 +496,68 @@ def _run_merge_loop(
         neg_scores.pop(best_key, None)
 
     pbar_merge.close()
-    print(f"    Converged after {merge_count} merges. {len(part_members)} partitions.")
     return [sorted(members) for members in part_members.values()]
+
+
+def _run_merge_loop(
+    candidates: List[Candidate],
+    pos_scores: Dict[Tuple[int, int], float],
+    neg_scores: Dict[Tuple[int, int], float],
+    tau: float,
+    theta_overlap: int,
+    output_folder: str,
+) -> List[Partition]:
+    """Save edge weights, compute connected components of the positive-edge
+    graph, and run the greedy merge loop independently per component.
+    Returns the concatenated partition list."""
+    import json
+    import os
+
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder, exist_ok=True)
+
+    scores_output_path = os.path.join(output_folder, "computed_edge_scores.jsonl")
+    print(f"  Saving computed edge weights to {os.path.abspath(scores_output_path)}...")
+    all_edge_keys = set(pos_scores.keys()).union(set(neg_scores.keys()))
+    with open(scores_output_path, "w", encoding="utf-8") as f:
+        for ci, cj in all_edge_keys:
+            edge_data = {
+                "cand_i": ci, "cand_j": cj,
+                "w_pos": pos_scores.get((ci, cj), 0.0),
+                "w_neg": neg_scores.get((ci, cj), 0.0),
+            }
+            f.write(json.dumps(edge_data) + "\n")
+    print(f"  Successfully saved {len(all_edge_keys)} edge scores to {output_folder}/")
+
+    n = len(candidates)
+    components = _connected_components(pos_scores, n)
+    largest = max((len(c) for c in components), default=0)
+    print(f"  Found {len(components)} connected components "
+          f"(largest: {largest})")
+
+    cand_to_comp: Dict[int, int] = {
+        c: i for i, comp in enumerate(components) for c in comp
+    }
+    comp_pos: Dict[int, Dict[Tuple[int, int], float]] = defaultdict(dict)
+    comp_neg: Dict[int, Dict[Tuple[int, int], float]] = defaultdict(dict)
+    for key, v in pos_scores.items():
+        comp_pos[cand_to_comp[key[0]]][key] = v
+    for key, v in neg_scores.items():
+        a, b = key
+        if cand_to_comp.get(a) == cand_to_comp.get(b):
+            comp_neg[cand_to_comp[a]][key] = v
+
+    all_partitions: List[Partition] = []
+    for i, component in enumerate(components):
+        if len(component) == 1:
+            all_partitions.append([next(iter(component))])
+            continue
+        all_partitions.extend(_greedy_merge_component(
+            candidates, component, comp_pos[i], comp_neg[i], tau,
+        ))
+    print(f"    Converged across {len(components)} components. "
+          f"{len(all_partitions)} partitions total.")
+    return all_partitions
 
 
 def greedy_partition(
