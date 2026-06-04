@@ -365,15 +365,21 @@ def test_components_disjoint_clusters_independent(synthesis_components_fixture, 
             pytest.fail(f"Partition {partition} mixes clusters A and B")
 
 
-def test_components_cross_component_neg_edges_dropped(tmp_path):
-    """A neg edge between candidates in different positive-edge
-    components must not appear in any per-component neg dict.
+def test_cross_component_pair_filtered_by_theta_overlap(tmp_path):
+    """Two candidates sharing only one bucket entry are filtered out
+    by theta_overlap=1 before scoring, so the would-be cross-component
+    neg edge never reaches `_compute_initial_scores`.
 
-    We rely on observable behavior: if the cross-component neg edge
-    *were* respected, it could block a merge inside one of the
-    components. We construct a case where dropping vs respecting the
-    cross-component neg edge yields different partition outputs and
-    assert that the drop-behavior output matches.
+    Cluster A: 0 and 1 share 3 pairs (multiple bucket co-occurrences).
+    Candidate 2 shares only left value 'x' with candidate 0 (one bucket
+    entry), so the (0,2) overlap is dropped at `_build_overlap_set`. Even
+    though (0,2) would have a strong negative score if computed, it never
+    is. Result: {0,1} merge, {2} singleton.
+
+    NOTE: this is NOT a direct test of per-component neg-edge bucketing
+    in `_run_merge_loop`. It pins the overlap-set filter at theta_overlap=1.
+    The stronger guard for per-component dispatch is
+    `test_with_components_equals_without_components`.
     """
     def mk(idx, pairs):
         return {

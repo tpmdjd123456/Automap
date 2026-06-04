@@ -376,7 +376,7 @@ def parallel_greedy_partition(
     print(f"  Running greedy partitioning...")
 
     return _run_merge_loop(
-        candidates, pos_scores, neg_scores, tau, theta_overlap, output_folder
+        candidates, pos_scores, neg_scores, tau, output_folder
     )
 
 

@@ -504,7 +504,6 @@ def _run_merge_loop(
     pos_scores: Dict[Tuple[int, int], float],
     neg_scores: Dict[Tuple[int, int], float],
     tau: float,
-    theta_overlap: int,
     output_folder: str,
 ) -> List[Partition]:
     """Save edge weights, compute connected components of the positive-edge
@@ -606,7 +605,7 @@ def greedy_partition(
     print(f"  Running greedy partitioning...")
 
     return _run_merge_loop(
-        candidates, pos_scores, neg_scores, tau, theta_overlap, output_folder
+        candidates, pos_scores, neg_scores, tau, output_folder
     )
 
 
