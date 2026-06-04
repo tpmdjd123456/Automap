@@ -120,3 +120,40 @@ def synthesis_candidates():
         mk(6, [("1", "100"), ("2", "200"), ("3", "300")]),
         mk(7, [("red", "warm"), ("blue", "cool"), ("green", "neutral")]),
     ]
+
+
+@pytest.fixture
+def synthesis_components_fixture():
+    """7 candidates for connected-component tests.
+
+    Designed structure:
+      - 0, 1, 2 form positive-overlap cluster A ("book → author")
+      - 3, 4, 5 form positive-overlap cluster B ("country → capital")
+      - 6 is isolated (shares nothing with anyone)
+
+    With theta_edge=0 and theta_overlap=1 the positive-edge graph has
+    three connected components: {0,1,2}, {3,4,5}, {6}.
+    """
+    def mk(idx, pairs):
+        return {
+            "pairs": [tuple(p) for p in pairs],
+            "theta": 1.0,
+            "row_count": len(pairs),
+            "covered_rows": len(pairs),
+            "source_table_index": idx,
+            "left_column_index": 0,
+            "right_column_index": 1,
+            "source_metadata": {},
+        }
+    return [
+        # Cluster A — book → author
+        mk(0, [("dune", "herbert"), ("foundation", "asimov"), ("1984", "orwell")]),
+        mk(1, [("dune", "herbert"), ("ender", "card"), ("foundation", "asimov")]),
+        mk(2, [("dune", "herbert"), ("foundation", "asimov"), ("1984", "orwell"), ("hobbit", "tolkien")]),
+        # Cluster B — country → capital
+        mk(3, [("france", "paris"), ("germany", "berlin"), ("italy", "rome")]),
+        mk(4, [("france", "paris"), ("spain", "madrid"), ("germany", "berlin")]),
+        mk(5, [("france", "paris"), ("germany", "berlin"), ("italy", "rome"), ("uk", "london")]),
+        # Isolated singleton — no pair-overlap with anyone
+        mk(6, [("red", "warm"), ("blue", "cool"), ("green", "neutral")]),
+    ]

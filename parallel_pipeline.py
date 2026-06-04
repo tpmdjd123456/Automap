@@ -298,11 +298,12 @@ def parallel_compute_initial_scores(
     use_approx,
     n_workers=None,
     chunk_size=1000,
+    theta_edge=0.85,
 ):
     """Parallel drop-in for synthesis._compute_initial_scores.
 
-    Returns (pos_scores, neg_scores, positive_edges, blocking_edges)
-    — same shape as the sequential helper, bit-identical output.
+    Filters positive edges with `ps >= theta_edge and ps > 0` (matches
+    sequential helper). Default `theta_edge=0.85` per paper §5.4.
     """
     if n_workers is None:
         n_workers = mp.cpu_count()
@@ -325,7 +326,7 @@ def parallel_compute_initial_scores(
             unit="pair",
         ):
             key = (ci, cj)
-            if ps > 0:
+            if ps >= theta_edge and ps > 0:
                 pos_scores[key] = ps
                 positive_edges += 1
             if ns < 0:
@@ -344,11 +345,13 @@ def parallel_greedy_partition(
     n_workers=None,
     chunk_size=1000,
     output_folder="output",
+    theta_edge=0.85,
 ):
     """Parallel sibling of synthesis.greedy_partition.
 
-    Identical orchestration; the initial-score computation is parallelized.
-    Output is bit-identical to greedy_partition for any input.
+    `theta_edge` is forwarded to parallel_compute_initial_scores; default
+    0.85 matches paper §5.4. Output is bit-identical to greedy_partition
+    for any input at the same theta_edge.
     """
     from synthesis import build_inverted_index, _build_overlap_set, _run_merge_loop
 
@@ -362,17 +365,18 @@ def parallel_greedy_partition(
     print(f"    left_index: {len(left_index)} unique left values")
 
     print(f"  Computing initial compatibility graph (parallel, {n_workers or mp.cpu_count()} workers)...")
-    overlapping_pairs = _build_overlap_set(pair_index, left_index)
+    overlapping_pairs = _build_overlap_set(pair_index, left_index, theta_overlap)
     pos_scores, neg_scores, positive_edges, blocking_edges = parallel_compute_initial_scores(
         overlapping_pairs, candidates, use_approx,
         n_workers=n_workers, chunk_size=chunk_size,
+        theta_edge=theta_edge,
     )
     print(f"    Non-zero positive edges: {positive_edges}")
     print(f"    Blocking negative edges (w- < tau): {blocking_edges}")
     print(f"  Running greedy partitioning...")
 
     return _run_merge_loop(
-        candidates, pos_scores, neg_scores, tau, theta_overlap, output_folder
+        candidates, pos_scores, neg_scores, tau, output_folder
     )
 
 

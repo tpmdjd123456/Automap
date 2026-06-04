@@ -82,10 +82,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tau", type=float, default=-0.2,
                    help="WP3 negative-weight threshold (default -0.2)")
     p.add_argument("--no_approx", action="store_true",
-                   help="WP3 disable approximate string matching")
-    p.add_argument("--theta_overlap", type=int, default=1,
-                   help="WP3 minimum shared pairs to consider a candidate pair "
-                        "(default 1)")
+                   help="WP3 disable approximate string matching. "
+                        "Required for paper-strict mode: under --no_approx "
+                        "the scoring functions match Wang & He (SIGMOD 2017) "
+                        "Equations 3 and 4 exactly.")
+    p.add_argument("--theta_overlap", type=int, default=3,
+                   help="WP3 minimum bucket co-occurrence count to admit a "
+                        "candidate pair (default 3 per Wang & He §4.1). "
+                        "Set to 1 to match pre-paper-conformance behavior.")
+    p.add_argument("--theta_edge", type=float, default=0.85,
+                   help="WP3 minimum normalized w+ to admit a positive edge "
+                        "(default 0.85 per Wang & He §5.4). Set to 0.0 to "
+                        "disable filtering (pre-paper-conformance behavior).")
     p.add_argument("--parallel_workers", type=int, default=1,
                    help="Run WP3 initial scoring in parallel with N workers "
                         "(default 1 = sequential). Recommended on dama: 14 "
@@ -193,6 +201,7 @@ def main() -> None:
             use_approx=not args.no_approx,
             n_workers=args.parallel_workers,
             output_folder=args.output_folder,
+            theta_edge=args.theta_edge,
         )
     else:
         partitions = greedy_partition(
@@ -201,6 +210,7 @@ def main() -> None:
             theta_overlap=args.theta_overlap,
             use_approx=not args.no_approx,
             output_folder=args.output_folder,
+            theta_edge=args.theta_edge,
         )
     synthesis_report(partitions, wp3_candidates)
     mappings_path = os.path.join(args.output_folder, "synthesized_mappings.jsonl")

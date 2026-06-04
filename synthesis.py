@@ -218,17 +218,16 @@ def negative_score(
     where ``F = {l | (l,r) in B and (l,r') in B' and r != r'}``.
 
     Returns a value in [-1, 0].
+
+    Under ``use_approx=False`` this is exact Equation 4. Under
+    ``use_approx=True`` ``_conflict_set`` is asymmetric — pick one
+    direction as the canonical F (see paper §4.1 for the formal
+    definition; the paper does not specify approx-matching behavior).
     """
     if not b or not b_prime:
         return 0.0
-    # Compute conflict from both directions (symmetrised)
-    f_from_b = _conflict_set(b, b_prime, use_approx)
-    f_from_b_prime = _conflict_set(b_prime, b, use_approx)
-    # F(B, B') from b's perspective uses left values of b
-    # |F| is counted once per distinct conflicting left value in b
-    # and separately in b' — take max of both ratios
-    size = max(len(f_from_b) / len(b), len(f_from_b_prime) / len(b_prime))
-    return -size
+    f = _conflict_set(b, b_prime, use_approx)
+    return -max(len(f) / len(b), len(f) / len(b_prime))
 
 
 # ---------------------------------------------------------------------------
@@ -269,12 +268,22 @@ from typing import List, Dict, Any, Tuple, Iterable, Set, Optional
 def _build_overlap_set(
     pair_index: Dict[Tuple[str, str], List[int]],
     left_index: Dict[str, List[int]],
+    theta_overlap: int = 1,
 ) -> Set[Tuple[int, int]]:
-    """Union of all candidate-index pairs that share either an exact (l,r)
-    pair (via pair_index) or an exact left value (via left_index).
-    Returned as ordered tuples (a, b) with a < b.
+    """Union of candidate-index pairs whose co-occurrence count in
+    either ``pair_index`` (shared value pairs) or ``left_index``
+    (shared left values) **strictly exceeds** ``theta_overlap`` (paper §4.1).
+
+    Returns ordered tuples ``(a, b)`` with ``a < b``.
+
+    Memory: the Counter scales with raw enumerations
+    (``Σ k·(k-1)/2`` across buckets). Acceptable on dama (251 GB) for
+    corpora up to ~10k filtered tables; will OOM at very large scale —
+    see the spec for the explicit single-machine limit.
     """
-    overlapping: Set[Tuple[int, int]] = set()
+    from collections import Counter
+
+    pair_count: Counter = Counter()
     for indices in pair_index.values():
         if len(indices) < 2:
             continue
@@ -283,7 +292,9 @@ def _build_overlap_set(
                 a, b = indices[x], indices[y]
                 if a > b:
                     a, b = b, a
-                overlapping.add((a, b))
+                pair_count[(a, b)] += 1
+
+    left_count: Counter = Counter()
     for indices in left_index.values():
         if len(indices) < 2:
             continue
@@ -292,26 +303,28 @@ def _build_overlap_set(
                 a, b = indices[x], indices[y]
                 if a > b:
                     a, b = b, a
-                overlapping.add((a, b))
-    return overlapping
+                left_count[(a, b)] += 1
+
+    return {k for k, v in pair_count.items() if v > theta_overlap} | \
+           {k for k, v in left_count.items() if v > theta_overlap}
 
 
 def _compute_initial_scores(
     overlapping_pairs: Set[Tuple[int, int]],
     candidates: List[Candidate],
     use_approx: bool,
+    theta_edge: float = 0.85,
 ) -> Tuple[Dict[Tuple[int, int], float], Dict[Tuple[int, int], float], int, int]:
     """Compute positive and negative scores for every overlap edge.
 
-    Iterates `sorted(overlapping_pairs)` so the resulting dicts have
-    deterministic insertion order — important because the greedy merge
-    loop scans `pos_scores.items()` to find the maximum, and tie-breaks
-    depend on iteration order.
+    A positive edge is kept only when ``w+ >= theta_edge`` (paper §5.4
+    recommends ``theta_edge=0.85``). Setting ``theta_edge=0`` keeps every
+    edge with ``ps > 0`` (legacy behavior).
 
-    Returns: (pos_scores, neg_scores, positive_edges, blocking_edges).
-    `blocking_edges` here is the count where `ns < -0.2` — kept for
-    parity with the existing summary print. The merge loop applies the
-    real `tau` threshold itself.
+    Iterates ``sorted(overlapping_pairs)`` so the resulting dicts have
+    deterministic insertion order.
+
+    Returns: ``(pos_scores, neg_scores, positive_edges, blocking_edges)``.
     """
     pos_scores: Dict[Tuple[int, int], float] = {}
     neg_scores: Dict[Tuple[int, int], float] = {}
@@ -328,7 +341,7 @@ def _compute_initial_scores(
         bq = list(candidates[cj]["pairs"])
         ps = positive_score(bp, bq, use_approx=use_approx)
         ns = negative_score(bp, bq, use_approx=use_approx)
-        if ps > 0:
+        if ps >= theta_edge and ps > 0:
             pos_scores[key] = ps
             positive_edges += 1
         if ns < 0:
@@ -338,58 +351,78 @@ def _compute_initial_scores(
     return pos_scores, neg_scores, positive_edges, blocking_edges
 
 
-def _run_merge_loop(
+def _connected_components(
+    pos_scores: Dict[Tuple[int, int], float],
+    n_candidates: int,
+) -> List[Set[int]]:
+    """Compute connected components of the positive-edge graph.
+
+    Implements the divide-and-conquer reduction described in
+    Wang & He (SIGMOD 2017) §4.2 and Appendix E. Two candidates connected
+    by a positive edge (directly or transitively) live in the same
+    component; the merge loop can never merge candidates across
+    components, so each component is an independent subproblem.
+
+    Uses path-compressed Union-Find (single-machine equivalent of the
+    paper's Hash-to-Min on Map-Reduce).
+
+    Args:
+        pos_scores: ``{(a, b): w+}`` from initial scoring.
+        n_candidates: total number of candidates (singletons are seeded
+            from this).
+
+    Returns:
+        Components as sets of candidate indices, sorted by
+        ``min(component)`` for deterministic order.
+    """
+    parent = list(range(n_candidates))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x: int, y: int) -> None:
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[rx] = ry
+
+    for a, b in pos_scores:
+        union(a, b)
+
+    buckets: Dict[int, Set[int]] = defaultdict(set)
+    for i in range(n_candidates):
+        buckets[find(i)].add(i)
+    return sorted(buckets.values(), key=lambda s: min(s))
+
+
+def _greedy_merge_component(
     candidates: List[Candidate],
+    component: Set[int],
     pos_scores: Dict[Tuple[int, int], float],
     neg_scores: Dict[Tuple[int, int], float],
     tau: float,
-    theta_overlap: int,
-    output_folder: str,
 ) -> List[Partition]:
-    """The greedy merge loop. Mutates `pos_scores`/`neg_scores` as
-    partitions merge. Writes `computed_edge_scores.jsonl` to
-    `output_folder` (as in the existing code).
+    """Run the greedy merge loop on a single positive-edge component.
+
+    Mutates the provided ``pos_scores`` / ``neg_scores`` dicts as it
+    merges; do not reuse them after the call. ``component`` holds the
+    candidate indices in this subgraph; partition state is initialized
+    only for those indices.
     """
-    n = len(candidates)
-    part_members: Dict[int, List[int]] = {i: [i] for i in range(n)}
+    part_members: Dict[int, List[int]] = {i: [i] for i in component}
     part_pairs: Dict[int, List[Tuple[str, str]]] = {
-        i: list(candidates[i]["pairs"]) for i in range(n)
+        i: list(candidates[i]["pairs"]) for i in component
     }
-    next_pid = n
-
-# --- SAVE EDGE SCORES TO FILE ---
-    import json
-    import os
-
-    # Ensure the directory exists dynamically
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder, exist_ok=True)
-
-    scores_output_path = os.path.join(output_folder, "computed_edge_scores.jsonl")
-    print(f"  Saving computed edge weights to {os.path.abspath(scores_output_path)}...")
-
-    all_edge_keys = set(pos_scores.keys()).union(set(neg_scores.keys()))
-
-    with open(scores_output_path, "w", encoding="utf-8") as f:
-        for ci, cj in all_edge_keys:
-            edge_data = {
-                "cand_i": ci,
-                "cand_j": cj,
-                "w_pos": pos_scores.get((ci, cj), 0.0),
-                "w_neg": neg_scores.get((ci, cj), 0.0)
-            }
-            f.write(json.dumps(edge_data) + "\n")
-
-    print(f"  Successfully saved {len(all_edge_keys)} edge scores to {output_folder}/")
+    next_pid = max(component) + 1
 
     merge_count = 0
-
-    # --- ADDED TQDM HERE TO TRACK ITERATIVE MATRIX MERGING ---
     pbar_merge = tqdm(desc="Merging partitions", unit="round")
     while True:
-        # Find the best merge: highest w+(P1,P2) where w-(P1,P2) >= tau
         best_key: Optional[Tuple[int, int]] = None
         best_pos: float = -1.0
+        ns_best: float = 0.0
 
         for key, ps in pos_scores.items():
             if ps <= best_pos:
@@ -401,25 +434,22 @@ def _run_merge_loop(
             if ns >= tau:
                 best_key = key
                 best_pos = ps
+                ns_best = ns
 
         if best_key is None:
             break
 
         pi, pj = best_key
-        ns_best = neg_scores.get(best_key, 0.0)
-        size_i = len(part_members[pi])
-        size_j = len(part_members[pj])
-        merge_count += 1
-
-        # Update progress bar statistics in real-time
-        pbar_merge.update(1)
-        pbar_merge.set_postfix({"last_w+": f"{best_pos:.3f}", "active_parts": len(part_members)})
-
-        # Create new partition
         new_pid = next_pid
         next_pid += 1
         new_members = part_members[pi] + part_members[pj]
-        # Union of pairs (deduplicated for scoring; synthesis deduplicates separately)
+        size_i = len(part_members[pi])
+        size_j = len(part_members[pj])
+        merge_count += 1
+        pbar_merge.update(1)
+        pbar_merge.set_postfix({"last_w+": f"{best_pos:.3f}",
+                                "active_parts": len(part_members)})
+
         seen: Set[Tuple[str, str]] = set()
         new_pairs: List[Tuple[str, str]] = []
         for pair in part_pairs[pi] + part_pairs[pj]:
@@ -431,7 +461,6 @@ def _run_merge_loop(
         part_members[new_pid] = new_members
         part_pairs[new_pid] = new_pairs
 
-        # Update scores for new_pid vs all remaining partitions
         remaining = [
             pid for pid in part_members
             if pid != pi and pid != pj and pid != new_pid
@@ -454,13 +483,11 @@ def _run_merge_loop(
             if new_neg < 0:
                 neg_scores[key_nk] = new_neg
 
-            # Clean up old keys
             pos_scores.pop(key_ik, None)
             pos_scores.pop(key_jk, None)
             neg_scores.pop(key_ik, None)
             neg_scores.pop(key_jk, None)
 
-        # Remove old partition entries and the merged key
         del part_members[pi]
         del part_members[pj]
         del part_pairs[pi]
@@ -469,8 +496,67 @@ def _run_merge_loop(
         neg_scores.pop(best_key, None)
 
     pbar_merge.close()
-    print(f"    Converged after {merge_count} merges. {len(part_members)} partitions.")
     return [sorted(members) for members in part_members.values()]
+
+
+def _run_merge_loop(
+    candidates: List[Candidate],
+    pos_scores: Dict[Tuple[int, int], float],
+    neg_scores: Dict[Tuple[int, int], float],
+    tau: float,
+    output_folder: str,
+) -> List[Partition]:
+    """Save edge weights, compute connected components of the positive-edge
+    graph, and run the greedy merge loop independently per component.
+    Returns the concatenated partition list."""
+    import json
+    import os
+
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder, exist_ok=True)
+
+    scores_output_path = os.path.join(output_folder, "computed_edge_scores.jsonl")
+    print(f"  Saving computed edge weights to {os.path.abspath(scores_output_path)}...")
+    all_edge_keys = set(pos_scores.keys()).union(set(neg_scores.keys()))
+    with open(scores_output_path, "w", encoding="utf-8") as f:
+        for ci, cj in all_edge_keys:
+            edge_data = {
+                "cand_i": ci, "cand_j": cj,
+                "w_pos": pos_scores.get((ci, cj), 0.0),
+                "w_neg": neg_scores.get((ci, cj), 0.0),
+            }
+            f.write(json.dumps(edge_data) + "\n")
+    print(f"  Successfully saved {len(all_edge_keys)} edge scores to {output_folder}/")
+
+    n = len(candidates)
+    components = _connected_components(pos_scores, n)
+    largest = max((len(c) for c in components), default=0)
+    print(f"  Found {len(components)} connected components "
+          f"(largest: {largest})")
+
+    cand_to_comp: Dict[int, int] = {
+        c: i for i, comp in enumerate(components) for c in comp
+    }
+    comp_pos: Dict[int, Dict[Tuple[int, int], float]] = defaultdict(dict)
+    comp_neg: Dict[int, Dict[Tuple[int, int], float]] = defaultdict(dict)
+    for key, v in pos_scores.items():
+        comp_pos[cand_to_comp[key[0]]][key] = v
+    for key, v in neg_scores.items():
+        a, b = key
+        if cand_to_comp.get(a) == cand_to_comp.get(b):
+            comp_neg[cand_to_comp[a]][key] = v
+
+    all_partitions: List[Partition] = []
+    for i, component in enumerate(components):
+        if len(component) == 1:
+            all_partitions.append([next(iter(component))])
+            continue
+        all_partitions.extend(_greedy_merge_component(
+            candidates, component, comp_pos[i], comp_neg[i], tau,
+        ))
+    print(f"    Converged across {len(components)} components. "
+          f"{len(all_partitions)} partitions total.")
+    return all_partitions
 
 
 def greedy_partition(
@@ -478,7 +564,8 @@ def greedy_partition(
     tau: float = -0.2,
     theta_overlap: int = 1,
     use_approx: bool = True,
-    output_folder: str = "output"
+    output_folder: str = "output",
+    theta_edge: float = 0.85,
 ) -> List[Partition]:
     """Run greedy table synthesis (Algorithm 3 from the paper).
 
@@ -489,6 +576,9 @@ def greedy_partition(
         theta_overlap: minimum shared value pairs to consider a candidate
             pair at all (efficiency filter, default 1).
         use_approx: whether to use approximate string matching.
+        theta_edge: minimum positive edge weight to keep in the
+            compatibility graph (paper §5.4 recommends 0.85). Setting
+            ``theta_edge=0`` retains every edge with ``ps > 0``.
 
     Returns:
         List of partitions.  Each partition is a list of candidate indices
@@ -506,16 +596,16 @@ def greedy_partition(
     print(f"    left_index: {len(left_index)} unique left values")
 
     print(f"  Computing initial compatibility graph...")
-    overlapping_pairs = _build_overlap_set(pair_index, left_index)
+    overlapping_pairs = _build_overlap_set(pair_index, left_index, theta_overlap)
     pos_scores, neg_scores, positive_edges, blocking_edges = _compute_initial_scores(
-        overlapping_pairs, candidates, use_approx
+        overlapping_pairs, candidates, use_approx, theta_edge=theta_edge,
     )
     print(f"    Non-zero positive edges: {positive_edges}")
     print(f"    Blocking negative edges (w- < tau): {blocking_edges}")
     print(f"  Running greedy partitioning...")
 
     return _run_merge_loop(
-        candidates, pos_scores, neg_scores, tau, theta_overlap, output_folder
+        candidates, pos_scores, neg_scores, tau, output_folder
     )
 
 
