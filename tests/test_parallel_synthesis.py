@@ -215,3 +215,55 @@ def test_parallel_equals_sequential_at_theta_edge(synthesis_candidates, tmp_path
         output_folder=str(tmp_path / "par"),
     )
     assert _canonical(par) == _canonical(seq)
+
+
+def test_theta_overlap_one_acts_like_today(synthesis_candidates, tmp_path):
+    """theta_overlap=1 (today's claimed default) admits any pair sharing
+    at least 2 bucket co-occurrences. Verify the partition output equals
+    EXPECTED_PARTITIONS so that current behavior remains pinned."""
+    actual = greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
+        output_folder=str(tmp_path),
+    )
+    assert _canonical(actual) == EXPECTED_PARTITIONS
+
+
+def test_theta_overlap_high_filters_buckets(tmp_path):
+    """Synthetic candidates sharing exactly 2, 3, 4 pairs.
+
+    With theta_overlap=3, only the 4-share pair survives → partitions
+    are {0, 3} (the 4-share pair) and singletons {1}, {2}.
+    """
+    from synthesis import greedy_partition as gp
+
+    def mk(idx, pairs):
+        return {
+            "pairs": [tuple(p) for p in pairs],
+            "theta": 1.0, "row_count": len(pairs), "covered_rows": len(pairs),
+            "source_table_index": idx, "left_column_index": 0,
+            "right_column_index": 1, "source_metadata": {},
+        }
+    cands = [
+        # 0 and 1: share 2 pairs
+        mk(0, [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4")]),
+        mk(1, [("a", "1"), ("b", "2"), ("e", "5"), ("f", "6")]),
+        # 0 and 2: share 3 pairs
+        mk(2, [("a", "1"), ("b", "2"), ("c", "3"), ("g", "7")]),
+        # 0 and 3: share 4 pairs (identical)
+        mk(3, [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4")]),
+    ]
+    partitions = gp(
+        cands,
+        tau=-0.2, theta_overlap=3, use_approx=True,
+        theta_edge=0.0,
+        output_folder=str(tmp_path),
+    )
+    canon = _canonical(partitions)
+    # 0 and 3 must merge (share 4 > 3).
+    merged = [p for p in canon if 0 in p]
+    assert merged and 3 in merged[0]
+    # 1 and 2 do not get a positive edge with 0 (shared count <= 3 → no edge).
+    assert [1] in canon
+    assert [2] in canon

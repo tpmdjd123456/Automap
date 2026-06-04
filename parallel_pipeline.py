@@ -365,7 +365,7 @@ def parallel_greedy_partition(
     print(f"    left_index: {len(left_index)} unique left values")
 
     print(f"  Computing initial compatibility graph (parallel, {n_workers or mp.cpu_count()} workers)...")
-    overlapping_pairs = _build_overlap_set(pair_index, left_index)
+    overlapping_pairs = _build_overlap_set(pair_index, left_index, theta_overlap)
     pos_scores, neg_scores, positive_edges, blocking_edges = parallel_compute_initial_scores(
         overlapping_pairs, candidates, use_approx,
         n_workers=n_workers, chunk_size=chunk_size,

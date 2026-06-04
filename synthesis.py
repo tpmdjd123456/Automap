@@ -268,12 +268,22 @@ from typing import List, Dict, Any, Tuple, Iterable, Set, Optional
 def _build_overlap_set(
     pair_index: Dict[Tuple[str, str], List[int]],
     left_index: Dict[str, List[int]],
+    theta_overlap: int = 1,
 ) -> Set[Tuple[int, int]]:
-    """Union of all candidate-index pairs that share either an exact (l,r)
-    pair (via pair_index) or an exact left value (via left_index).
-    Returned as ordered tuples (a, b) with a < b.
+    """Union of candidate-index pairs whose co-occurrence count in
+    either ``pair_index`` (shared value pairs) or ``left_index``
+    (shared left values) **strictly exceeds** ``theta_overlap`` (paper §4.1).
+
+    Returns ordered tuples ``(a, b)`` with ``a < b``.
+
+    Memory: the Counter scales with raw enumerations
+    (``Σ k·(k-1)/2`` across buckets). Acceptable on dama (251 GB) for
+    corpora up to ~10k filtered tables; will OOM at very large scale —
+    see the spec for the explicit single-machine limit.
     """
-    overlapping: Set[Tuple[int, int]] = set()
+    from collections import Counter
+
+    pair_count: Counter = Counter()
     for indices in pair_index.values():
         if len(indices) < 2:
             continue
@@ -282,7 +292,9 @@ def _build_overlap_set(
                 a, b = indices[x], indices[y]
                 if a > b:
                     a, b = b, a
-                overlapping.add((a, b))
+                pair_count[(a, b)] += 1
+
+    left_count: Counter = Counter()
     for indices in left_index.values():
         if len(indices) < 2:
             continue
@@ -291,8 +303,10 @@ def _build_overlap_set(
                 a, b = indices[x], indices[y]
                 if a > b:
                     a, b = b, a
-                overlapping.add((a, b))
-    return overlapping
+                left_count[(a, b)] += 1
+
+    return {k for k, v in pair_count.items() if v > theta_overlap} | \
+           {k for k, v in left_count.items() if v > theta_overlap}
 
 
 def _compute_initial_scores(
@@ -509,7 +523,7 @@ def greedy_partition(
     print(f"    left_index: {len(left_index)} unique left values")
 
     print(f"  Computing initial compatibility graph...")
-    overlapping_pairs = _build_overlap_set(pair_index, left_index)
+    overlapping_pairs = _build_overlap_set(pair_index, left_index, theta_overlap)
     pos_scores, neg_scores, positive_edges, blocking_edges = _compute_initial_scores(
         overlapping_pairs, candidates, use_approx, theta_edge=theta_edge,
     )
