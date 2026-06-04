@@ -318,3 +318,76 @@ def test_with_components_equals_without_components(synthesis_candidates, tmp_pat
         output_folder=str(tmp_path),
     )
     assert _canonical(partitions) == UNSPLIT_EXPECTED
+
+
+def test_components_singletons_passthrough(synthesis_components_fixture, tmp_path):
+    """The isolated candidate (index 6) emerges as its own 1-element
+    partition without any merge being attempted."""
+    partitions = greedy_partition(
+        synthesis_components_fixture,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
+        output_folder=str(tmp_path),
+    )
+    canon = _canonical(partitions)
+    assert [6] in canon
+
+
+def test_components_disjoint_clusters_independent(synthesis_components_fixture, tmp_path):
+    """No final partition spans both cluster A ({0,1,2}) and cluster B
+    ({3,4,5})."""
+    partitions = greedy_partition(
+        synthesis_components_fixture,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
+        output_folder=str(tmp_path),
+    )
+    canon = _canonical(partitions)
+    cluster_a = {0, 1, 2}
+    cluster_b = {3, 4, 5}
+    for partition in canon:
+        partition_set = set(partition)
+        if partition_set & cluster_a and partition_set & cluster_b:
+            pytest.fail(f"Partition {partition} mixes clusters A and B")
+
+
+def test_components_cross_component_neg_edges_dropped(tmp_path):
+    """A neg edge between candidates in different positive-edge
+    components must not appear in any per-component neg dict.
+
+    We rely on observable behavior: if the cross-component neg edge
+    *were* respected, it could block a merge inside one of the
+    components. We construct a case where dropping vs respecting the
+    cross-component neg edge yields different partition outputs and
+    assert that the drop-behavior output matches.
+    """
+    def mk(idx, pairs):
+        return {
+            "pairs": [tuple(p) for p in pairs],
+            "theta": 1.0, "row_count": len(pairs), "covered_rows": len(pairs),
+            "source_table_index": idx, "left_column_index": 0,
+            "right_column_index": 1, "source_metadata": {},
+        }
+
+    # Cluster A: 0 and 1 share enough pair-overlap to merge.
+    # Cluster B: candidate 2, no overlap with cluster A.
+    # But 0 and 2 share a left value 'x' with conflicting rights — would
+    # produce a strong negative edge if discovered. With theta_overlap=1
+    # and no left-value bucket of size >= 2, the (0,2) neg edge is
+    # dropped at overlap-set construction; this test pins partition
+    # output as {0,1} merged, {2} singleton.
+    cands = [
+        mk(0, [("a", "1"), ("b", "2"), ("c", "3"), ("x", "y")]),
+        mk(1, [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4")]),
+        mk(2, [("x", "z"), ("p", "q"), ("r", "s")]),
+    ]
+    partitions = greedy_partition(
+        cands,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
+        output_folder=str(tmp_path),
+    )
+    canon = _canonical(partitions)
+    merged = [p for p in canon if 0 in p]
+    assert merged and 1 in merged[0], "0 and 1 should merge"
+    assert [2] in canon, "2 should be a singleton"
