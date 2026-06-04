@@ -351,6 +351,52 @@ def _compute_initial_scores(
     return pos_scores, neg_scores, positive_edges, blocking_edges
 
 
+def _connected_components(
+    pos_scores: Dict[Tuple[int, int], float],
+    n_candidates: int,
+) -> List[Set[int]]:
+    """Compute connected components of the positive-edge graph.
+
+    Implements the divide-and-conquer reduction described in
+    Wang & He (SIGMOD 2017) §4.2 and Appendix E. Two candidates connected
+    by a positive edge (directly or transitively) live in the same
+    component; the merge loop can never merge candidates across
+    components, so each component is an independent subproblem.
+
+    Uses path-compressed Union-Find (single-machine equivalent of the
+    paper's Hash-to-Min on Map-Reduce).
+
+    Args:
+        pos_scores: ``{(a, b): w+}`` from initial scoring.
+        n_candidates: total number of candidates (singletons are seeded
+            from this).
+
+    Returns:
+        Components as sets of candidate indices, sorted by
+        ``min(component)`` for deterministic order.
+    """
+    parent = list(range(n_candidates))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x: int, y: int) -> None:
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[rx] = ry
+
+    for a, b in pos_scores:
+        union(a, b)
+
+    buckets: Dict[int, Set[int]] = defaultdict(set)
+    for i in range(n_candidates):
+        buckets[find(i)].add(i)
+    return sorted(buckets.values(), key=lambda s: min(s))
+
+
 def _run_merge_loop(
     candidates: List[Candidate],
     pos_scores: Dict[Tuple[int, int], float],

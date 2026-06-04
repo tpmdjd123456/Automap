@@ -267,3 +267,34 @@ def test_theta_overlap_high_filters_buckets(tmp_path):
     # 1 and 2 do not get a positive edge with 0 (shared count <= 3 → no edge).
     assert [1] in canon
     assert [2] in canon
+
+
+def test_connected_components_singletons():
+    """No positive edges → n singletons."""
+    from synthesis import _connected_components
+    comps = _connected_components(pos_scores={}, n_candidates=5)
+    assert sorted(sorted(c) for c in comps) == [[0], [1], [2], [3], [4]]
+
+
+def test_connected_components_two_disjoint_clusters():
+    """Two clusters of 3 + one isolated singleton → 3 components."""
+    from synthesis import _connected_components
+    pos_scores = {
+        (0, 1): 0.9, (1, 2): 0.9, (0, 2): 0.9,  # cluster A
+        (3, 4): 0.9, (4, 5): 0.9, (3, 5): 0.9,  # cluster B
+        # 6 isolated
+    }
+    comps = _connected_components(pos_scores, n_candidates=7)
+    canon = sorted(sorted(c) for c in comps)
+    assert canon == [[0, 1, 2], [3, 4, 5], [6]]
+
+
+def test_connected_components_chain_path():
+    """Edges 0-1, 1-2, 2-3 form a single component {0,1,2,3}."""
+    from synthesis import _connected_components
+    comps = _connected_components(
+        pos_scores={(0, 1): 0.5, (1, 2): 0.5, (2, 3): 0.5},
+        n_candidates=4,
+    )
+    assert len(comps) == 1
+    assert sorted(comps[0]) == [0, 1, 2, 3]
