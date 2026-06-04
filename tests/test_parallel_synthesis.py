@@ -23,6 +23,7 @@ def test_refactor_preserves_behavior(synthesis_candidates, tmp_path):
     actual = greedy_partition(
         synthesis_candidates,
         tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
         output_folder=str(tmp_path),
     )
     assert _canonical(actual) == EXPECTED_PARTITIONS
@@ -35,6 +36,7 @@ def test_parallel_equals_sequential(synthesis_candidates, tmp_path, n_workers):
     seq = greedy_partition(
         synthesis_candidates,
         tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
         output_folder=str(tmp_path / "seq"),
     )
     par = parallel_greedy_partition(
@@ -52,6 +54,7 @@ def test_parallel_n_workers_one(synthesis_candidates, tmp_path):
     seq = greedy_partition(
         synthesis_candidates,
         tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
         output_folder=str(tmp_path / "seq"),
     )
     par = parallel_greedy_partition(
@@ -139,3 +142,55 @@ def test_negative_score_strict_mode_no_op_under_exact():
     # 'a' and 'b' conflict; 'c' matches; 'd' and 'e' don't share left.
     # |F| = 2, |B| = 4, |B'| = 4 → -max(2/4, 2/4) = -0.5.
     assert score == pytest.approx(-0.5)
+
+
+def test_theta_edge_zero_keeps_all_positive_edges(synthesis_candidates, tmp_path):
+    """theta_edge=0 must equal today's `ps > 0` behavior."""
+    partitions_strict = greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
+        output_folder=str(tmp_path),
+    )
+    # Expect the same partition set as the historical pin in
+    # test_refactor_preserves_behavior, since theta_edge=0 disables filtering.
+    assert _canonical(partitions_strict) == EXPECTED_PARTITIONS
+
+
+def test_theta_edge_one_keeps_only_perfect_overlap(synthesis_candidates, tmp_path):
+    """theta_edge=1.0 keeps only pairs with identical pair sets (w+=1.0).
+
+    In synthesis_candidates, candidates 0 and 3 are identical (3/3 shared
+    pairs both ways -> w+=1.0). All other pairs have w+<1.0. So {0,3}
+    merge; everyone else is a singleton."""
+    partitions = greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=1.0,
+        output_folder=str(tmp_path),
+    )
+    canon = _canonical(partitions)
+    # Indices 0 and 3 must be in the same partition.
+    same = [p for p in canon if 0 in p]
+    assert same and 3 in same[0]
+    # Every other candidate is a singleton.
+    for idx in (1, 2, 4, 5, 6, 7):
+        assert [idx] in canon
+
+
+def test_theta_edge_default_drops_low_weight_edges(synthesis_candidates, tmp_path):
+    """theta_edge=0.85 keeps fewer edges than theta_edge=0 — fewer merges."""
+    p_default = greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.85,
+        output_folder=str(tmp_path / "default"),
+    )
+    p_all = greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
+        output_folder=str(tmp_path / "all"),
+    )
+    # Stricter filter -> at least as many partitions (fewer merges).
+    assert len(_canonical(p_default)) >= len(_canonical(p_all))

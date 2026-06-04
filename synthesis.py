@@ -299,18 +299,18 @@ def _compute_initial_scores(
     overlapping_pairs: Set[Tuple[int, int]],
     candidates: List[Candidate],
     use_approx: bool,
+    theta_edge: float = 0.85,
 ) -> Tuple[Dict[Tuple[int, int], float], Dict[Tuple[int, int], float], int, int]:
     """Compute positive and negative scores for every overlap edge.
 
-    Iterates `sorted(overlapping_pairs)` so the resulting dicts have
-    deterministic insertion order — important because the greedy merge
-    loop scans `pos_scores.items()` to find the maximum, and tie-breaks
-    depend on iteration order.
+    A positive edge is kept only when ``w+ >= theta_edge`` (paper §5.4
+    recommends ``theta_edge=0.85``). Setting ``theta_edge=0`` keeps every
+    edge with ``ps > 0`` (legacy behavior).
 
-    Returns: (pos_scores, neg_scores, positive_edges, blocking_edges).
-    `blocking_edges` here is the count where `ns < -0.2` — kept for
-    parity with the existing summary print. The merge loop applies the
-    real `tau` threshold itself.
+    Iterates ``sorted(overlapping_pairs)`` so the resulting dicts have
+    deterministic insertion order.
+
+    Returns: ``(pos_scores, neg_scores, positive_edges, blocking_edges)``.
     """
     pos_scores: Dict[Tuple[int, int], float] = {}
     neg_scores: Dict[Tuple[int, int], float] = {}
@@ -327,7 +327,7 @@ def _compute_initial_scores(
         bq = list(candidates[cj]["pairs"])
         ps = positive_score(bp, bq, use_approx=use_approx)
         ns = negative_score(bp, bq, use_approx=use_approx)
-        if ps > 0:
+        if ps >= theta_edge and ps > 0:
             pos_scores[key] = ps
             positive_edges += 1
         if ns < 0:
@@ -477,7 +477,8 @@ def greedy_partition(
     tau: float = -0.2,
     theta_overlap: int = 1,
     use_approx: bool = True,
-    output_folder: str = "output"
+    output_folder: str = "output",
+    theta_edge: float = 0.85,
 ) -> List[Partition]:
     """Run greedy table synthesis (Algorithm 3 from the paper).
 
@@ -488,6 +489,9 @@ def greedy_partition(
         theta_overlap: minimum shared value pairs to consider a candidate
             pair at all (efficiency filter, default 1).
         use_approx: whether to use approximate string matching.
+        theta_edge: minimum positive edge weight to keep in the
+            compatibility graph (paper §5.4 recommends 0.85). Setting
+            ``theta_edge=0`` retains every edge with ``ps > 0``.
 
     Returns:
         List of partitions.  Each partition is a list of candidate indices
@@ -507,7 +511,7 @@ def greedy_partition(
     print(f"  Computing initial compatibility graph...")
     overlapping_pairs = _build_overlap_set(pair_index, left_index)
     pos_scores, neg_scores, positive_edges, blocking_edges = _compute_initial_scores(
-        overlapping_pairs, candidates, use_approx
+        overlapping_pairs, candidates, use_approx, theta_edge=theta_edge,
     )
     print(f"    Non-zero positive edges: {positive_edges}")
     print(f"    Blocking negative edges (w- < tau): {blocking_edges}")
