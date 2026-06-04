@@ -403,42 +403,42 @@ def _partition_map(partitions):
 
 def test_ioc_tables_merged(paper_candidates):
     """B1 (idx 0) and B2 (idx 1) are both IOC — must end up in the same partition."""
-    partitions = greedy_partition(paper_candidates)
+    partitions = greedy_partition(paper_candidates, theta_edge=0.0, theta_overlap=0)
     flat = _partition_map(partitions)
     assert flat[0] == flat[1], "IOC tables B1 and B2 must merge"
 
 
 def test_iso_tables_merged(paper_candidates):
     """B3, B4, B5 (idx 2,3,4) are all ISO — must be in the same partition."""
-    partitions = greedy_partition(paper_candidates)
+    partitions = greedy_partition(paper_candidates, theta_edge=0.0, theta_overlap=0)
     flat = _partition_map(partitions)
     assert flat[2] == flat[3] == flat[4], "ISO tables B3, B4, B5 must merge"
 
 
 def test_ioc_and_iso_separated(paper_candidates):
     """IOC and ISO partitions must be different (algeria conflict blocks merge)."""
-    partitions = greedy_partition(paper_candidates)
+    partitions = greedy_partition(paper_candidates, theta_edge=0.0, theta_overlap=0)
     flat = _partition_map(partitions)
     assert flat[0] != flat[2], "IOC and ISO must NOT merge"
 
 
 def test_all_candidates_assigned(paper_candidates):
     """Every candidate index appears in exactly one partition."""
-    partitions = greedy_partition(paper_candidates)
+    partitions = greedy_partition(paper_candidates, theta_edge=0.0, theta_overlap=0)
     all_indices = sorted(idx for p in partitions for idx in p)
     assert all_indices == list(range(len(paper_candidates)))
 
 
 def test_greedy_produces_disjoint_partitions(paper_candidates):
     """No candidate index appears in more than one partition."""
-    partitions = greedy_partition(paper_candidates)
+    partitions = greedy_partition(paper_candidates, theta_edge=0.0, theta_overlap=0)
     all_indices = [idx for p in partitions for idx in p]
     assert len(all_indices) == len(set(all_indices))
 
 
 def test_greedy_covers_all_candidates(paper_candidates):
     """Union of all partitions equals the set of all candidate indices."""
-    partitions = greedy_partition(paper_candidates)
+    partitions = greedy_partition(paper_candidates, theta_edge=0.0, theta_overlap=0)
     all_indices = {idx for p in partitions for idx in p}
     assert all_indices == set(range(len(paper_candidates)))
 
@@ -449,7 +449,7 @@ def test_singleton_when_no_overlap():
         {"pairs": [("germany", "deu"), ("france", "fra")]},
         {"pairs": [("msft", "microsoft"), ("aapl", "apple")]},
     ]
-    partitions = greedy_partition(candidates, use_approx=False)
+    partitions = greedy_partition(candidates, use_approx=False, theta_edge=0.0, theta_overlap=0)
     assert len(partitions) == 2
 
 
@@ -461,7 +461,7 @@ def test_tau_blocks_conflicting_merge():
         {"pairs": [("a", "x"), ("b", "y")]},
         {"pairs": [("a", "z"), ("b", "y")]},
     ]
-    partitions = greedy_partition(candidates, tau=-0.2, use_approx=False)
+    partitions = greedy_partition(candidates, tau=-0.2, use_approx=False, theta_edge=0.0, theta_overlap=0)
     assert len(partitions) == 2, "Merge must be blocked by w- < tau"
 
 
@@ -472,7 +472,7 @@ def test_tau_zero_is_stricter():
         {"pairs": [("a", "p"), ("b", "y"), ("c", "z")]},
     ]
     # F = {"a"}: w- = -1/3 ≈ -0.333 < 0.0 → blocked
-    partitions = greedy_partition(candidates, tau=0.0, use_approx=False)
+    partitions = greedy_partition(candidates, tau=0.0, use_approx=False, theta_edge=0.0, theta_overlap=0)
     assert len(partitions) == 2, "Merge must be blocked with tau=0.0"
 
 
@@ -483,7 +483,7 @@ def test_tau_allows_minor_conflict():
         {"pairs": [("a", "p"), ("b", "y"), ("c", "z")]},
     ]
     # w- = -1/3 ≈ -0.333 >= -0.5 → merge is allowed
-    partitions = greedy_partition(candidates, tau=-0.5, use_approx=False)
+    partitions = greedy_partition(candidates, tau=-0.5, use_approx=False, theta_edge=0.0, theta_overlap=0)
     assert len(partitions) == 1
 
 
@@ -493,21 +493,21 @@ def test_tau_default_allows_merge_when_no_conflict():
         make_candidate([("germany", "deu"), ("france", "fra")]),
         make_candidate([("germany", "deu"), ("japan", "jpn")]),
     ]
-    partitions = greedy_partition(candidates, tau=-0.2, use_approx=False)
+    partitions = greedy_partition(candidates, tau=-0.2, use_approx=False, theta_edge=0.0, theta_overlap=0)
     assert len(partitions) == 1
 
 
 def test_single_candidate_returns_one_partition():
     """A single candidate produces exactly one partition containing index 0."""
     candidates = [make_candidate([("germany", "deu")])]
-    partitions = greedy_partition(candidates)
+    partitions = greedy_partition(candidates, theta_edge=0.0, theta_overlap=0)
     assert len(partitions) == 1
     assert partitions[0] == [0]
 
 
 def test_empty_candidates_returns_empty():
     """greedy_partition on an empty list returns an empty list."""
-    assert greedy_partition([]) == []
+    assert greedy_partition([], theta_edge=0.0, theta_overlap=0) == []
 
 
 def test_three_way_merge():
@@ -517,7 +517,7 @@ def test_three_way_merge():
         make_candidate([("a", "1"), ("c", "3")]),
         make_candidate([("b", "2"), ("c", "3")]),
     ]
-    partitions = greedy_partition(candidates, tau=-0.2, use_approx=False)
+    partitions = greedy_partition(candidates, tau=-0.2, use_approx=False, theta_edge=0.0, theta_overlap=0)
     flat = _partition_map(partitions)
     assert flat[0] == flat[1] == flat[2]
 
@@ -530,7 +530,7 @@ def test_two_independent_groups():
         make_candidate([("msft", "microsoft"), ("aapl", "apple")]),
         make_candidate([("msft", "microsoft"), ("googl", "alphabet")]),
     ]
-    partitions = greedy_partition(candidates, tau=-0.2, use_approx=False)
+    partitions = greedy_partition(candidates, tau=-0.2, use_approx=False, theta_edge=0.0, theta_overlap=0)
     flat = _partition_map(partitions)
     assert flat[0] == flat[1]
     assert flat[2] == flat[3]
@@ -617,7 +617,7 @@ def test_synthesize_mapping_sorted():
 
 def test_save_synthesized_mappings_jsonl_schema(tmp_path, paper_candidates):
     """Each line of synthesized_mappings.jsonl has the 5 required fields."""
-    partitions = greedy_partition(paper_candidates)
+    partitions = greedy_partition(paper_candidates, theta_edge=0.0, theta_overlap=0)
     output = str(tmp_path / "out.jsonl")
     save_synthesized_mappings(partitions, paper_candidates, output)
     with open(output, encoding="utf-8") as fh:
@@ -636,7 +636,7 @@ def test_save_synthesized_mappings_jsonl_schema(tmp_path, paper_candidates):
 
 def test_save_load_roundtrip(tmp_path, paper_candidates):
     """save_synthesized_mappings then reading back produces consistent data."""
-    partitions = greedy_partition(paper_candidates)
+    partitions = greedy_partition(paper_candidates, theta_edge=0.0, theta_overlap=0)
     output = str(tmp_path / "mappings.jsonl")
     save_synthesized_mappings(partitions, paper_candidates, output)
     lines = open(output, encoding="utf-8").readlines()
@@ -649,7 +649,7 @@ def test_save_load_roundtrip(tmp_path, paper_candidates):
 
 def test_synthesis_report_runs_without_error(capsys, paper_candidates):
     """synthesis_report() prints without raising exceptions."""
-    partitions = greedy_partition(paper_candidates)
+    partitions = greedy_partition(paper_candidates, theta_edge=0.0, theta_overlap=0)
     synthesis_report(partitions, paper_candidates)
     captured = capsys.readouterr()
     assert "Total synthesized mappings" in captured.out

@@ -77,13 +77,19 @@ def _trivial(idx, pairs):
 
 def test_parallel_empty(tmp_path):
     """Zero candidates → empty partition list, no Pool created."""
-    assert parallel_greedy_partition([], n_workers=2, output_folder=str(tmp_path)) == []
+    assert parallel_greedy_partition(
+        [], n_workers=2, output_folder=str(tmp_path),
+        theta_edge=0.0, theta_overlap=1,
+    ) == []
 
 
 def test_parallel_single_candidate(tmp_path):
     """One candidate → one singleton partition."""
     cands = [_trivial(0, [("a", "x"), ("b", "y"), ("c", "z")])]
-    result = parallel_greedy_partition(cands, n_workers=2, output_folder=str(tmp_path))
+    result = parallel_greedy_partition(
+        cands, n_workers=2, output_folder=str(tmp_path),
+        theta_edge=0.0, theta_overlap=1,
+    )
     assert _canonical(result) == [[0]]
 
 
@@ -94,8 +100,14 @@ def test_parallel_no_overlap(tmp_path):
         _trivial(1, [("d", "p"), ("e", "q"), ("f", "r")]),
         _trivial(2, [("g", "m"), ("h", "n"), ("i", "o")]),
     ]
-    seq = greedy_partition(cands, output_folder=str(tmp_path / "seq"))
-    par = parallel_greedy_partition(cands, n_workers=2, output_folder=str(tmp_path / "par"))
+    seq = greedy_partition(
+        cands, output_folder=str(tmp_path / "seq"),
+        theta_edge=0.0, theta_overlap=1,
+    )
+    par = parallel_greedy_partition(
+        cands, n_workers=2, output_folder=str(tmp_path / "par"),
+        theta_edge=0.0, theta_overlap=1,
+    )
     assert _canonical(par) == _canonical(seq) == [[0], [1], [2]]
 
 
@@ -105,11 +117,13 @@ def test_parallel_determinism(synthesis_candidates, tmp_path):
     run1 = parallel_greedy_partition(
         synthesis_candidates,
         tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
         n_workers=4, chunk_size=2, output_folder=str(tmp_path / "r1"),
     )
     run2 = parallel_greedy_partition(
         synthesis_candidates,
         tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
         n_workers=4, chunk_size=2, output_folder=str(tmp_path / "r2"),
     )
     assert _canonical(run1) == _canonical(run2)
