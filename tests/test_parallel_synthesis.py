@@ -108,3 +108,34 @@ def test_parallel_determinism(synthesis_candidates, tmp_path):
         n_workers=4, chunk_size=2, output_folder=str(tmp_path / "r2"),
     )
     assert _canonical(run1) == _canonical(run2)
+
+
+from synthesis import negative_score
+
+
+def test_negative_score_single_F_matches_paper_eq4():
+    """w- = -max(|F| / |B|, |F| / |B'|), F computed once.
+
+    Hand-crafted case:
+      B  = [(a, x), (b, y), (c, z)]
+      B' = [(a, x), (b, w)]  # conflict on b only
+    |F| = 1, |B| = 3, |B'| = 2.
+    w- = -max(1/3, 1/2) = -0.5.
+    """
+    b  = [("a", "x"), ("b", "y"), ("c", "z")]
+    bp = [("a", "x"), ("b", "w")]
+    assert negative_score(b, bp, use_approx=False) == pytest.approx(-0.5)
+
+
+def test_negative_score_strict_mode_no_op_under_exact():
+    """Under --no_approx the single-F implementation equals
+    -max(|f_from_b|/|B|, |f_from_b_prime|/|B'|) because both
+    conflict-set sizes are equal under exact left-value matching.
+    Constructed example with two conflicts: b uses lefts {a, b, c, d}
+    where 'a' and 'b' have right-value mismatches with b'."""
+    b  = [("a", "x"), ("b", "y"), ("c", "z"), ("d", "q")]
+    bp = [("a", "x1"), ("b", "y1"), ("c", "z"), ("e", "q")]
+    score = negative_score(b, bp, use_approx=False)
+    # 'a' and 'b' conflict; 'c' matches; 'd' and 'e' don't share left.
+    # |F| = 2, |B| = 4, |B'| = 4 → -max(2/4, 2/4) = -0.5.
+    assert score == pytest.approx(-0.5)

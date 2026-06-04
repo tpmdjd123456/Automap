@@ -218,17 +218,16 @@ def negative_score(
     where ``F = {l | (l,r) in B and (l,r') in B' and r != r'}``.
 
     Returns a value in [-1, 0].
+
+    Under ``use_approx=False`` this is exact Equation 4. Under
+    ``use_approx=True`` ``_conflict_set`` is asymmetric — pick one
+    direction as the canonical F (see paper §4.1 for the formal
+    definition; the paper does not specify approx-matching behavior).
     """
     if not b or not b_prime:
         return 0.0
-    # Compute conflict from both directions (symmetrised)
-    f_from_b = _conflict_set(b, b_prime, use_approx)
-    f_from_b_prime = _conflict_set(b_prime, b, use_approx)
-    # F(B, B') from b's perspective uses left values of b
-    # |F| is counted once per distinct conflicting left value in b
-    # and separately in b' — take max of both ratios
-    size = max(len(f_from_b) / len(b), len(f_from_b_prime) / len(b_prime))
-    return -size
+    f = _conflict_set(b, b_prime, use_approx)
+    return -max(len(f) / len(b), len(f) / len(b_prime))
 
 
 # ---------------------------------------------------------------------------
