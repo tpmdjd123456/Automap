@@ -43,6 +43,7 @@ def test_parallel_equals_sequential(synthesis_candidates, tmp_path, n_workers):
         synthesis_candidates,
         tau=-0.2, theta_overlap=1, use_approx=True,
         n_workers=n_workers, chunk_size=2,
+        theta_edge=0.0,
         output_folder=str(tmp_path / "par"),
     )
     assert _canonical(par) == _canonical(seq)
@@ -61,6 +62,7 @@ def test_parallel_n_workers_one(synthesis_candidates, tmp_path):
         synthesis_candidates,
         tau=-0.2, theta_overlap=1, use_approx=True,
         n_workers=1, chunk_size=2,
+        theta_edge=0.0,
         output_folder=str(tmp_path / "par"),
     )
     assert _canonical(par) == _canonical(seq)
@@ -194,3 +196,22 @@ def test_theta_edge_default_drops_low_weight_edges(synthesis_candidates, tmp_pat
     )
     # Stricter filter -> at least as many partitions (fewer merges).
     assert len(_canonical(p_default)) >= len(_canonical(p_all))
+
+
+@pytest.mark.parametrize("theta_edge", [0.0, 0.5, 0.85, 1.0])
+def test_parallel_equals_sequential_at_theta_edge(synthesis_candidates, tmp_path, theta_edge):
+    """parallel_greedy_partition must match sequential at every theta_edge."""
+    seq = greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=theta_edge,
+        output_folder=str(tmp_path / "seq"),
+    )
+    par = parallel_greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        n_workers=2, chunk_size=2,
+        theta_edge=theta_edge,
+        output_folder=str(tmp_path / "par"),
+    )
+    assert _canonical(par) == _canonical(seq)
