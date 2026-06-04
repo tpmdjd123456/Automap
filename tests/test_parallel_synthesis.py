@@ -298,3 +298,23 @@ def test_connected_components_chain_path():
     )
     assert len(comps) == 1
     assert sorted(comps[0]) == [0, 1, 2, 3]
+
+
+# Captured BEFORE the per-component refactor of _run_merge_loop, on
+# the synthesis_candidates fixture at theta_edge=0, theta_overlap=1.
+# Post-refactor greedy_partition with the same args must produce the
+# same partitions.
+UNSPLIT_EXPECTED = [[0, 1, 3], [2], [4], [5], [6], [7]]
+
+
+def test_with_components_equals_without_components(synthesis_candidates, tmp_path):
+    """The per-component refactor of _run_merge_loop must produce
+    identical output to the pre-refactor monolithic loop on a
+    fully-connected fixture."""
+    partitions = greedy_partition(
+        synthesis_candidates,
+        tau=-0.2, theta_overlap=1, use_approx=True,
+        theta_edge=0.0,
+        output_folder=str(tmp_path),
+    )
+    assert _canonical(partitions) == UNSPLIT_EXPECTED
