@@ -135,22 +135,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     skip_noise_values = not args.no_skip_noise_values
-
-    # Optionally swap the approximate-match function. Done BEFORE Pool() spawns
-    # so workers inherit the patched module via fork (COW). No effect when
-    # --no_approx is set (matching is exact equality).
-    if args.string_matcher == "jaccard":
-        import synthesis
-        from jaccard_similarity import JaccardMatcher
-        _jm = JaccardMatcher(threshold=0.5)
-        synthesis.approx_match = lambda a, b: _jm.are_match(a, b)[0]
-        print(f"  String matcher: Jaccard char-2gram (threshold=0.5)")
-    elif args.string_matcher == "jw":
-        import synthesis
-        from jaro_winkler import JaroWinklerMatcher
-        _jw = JaroWinklerMatcher(threshold=0.85)
-        synthesis.approx_match = lambda a, b: _jw.are_match(a, b)[0]
-        print(f"  String matcher: Jaro-Winkler (threshold=0.85)")
     os.makedirs(args.output_folder, exist_ok=True)
     index_suffix = "skipnoise" if skip_noise_values else "full"
     index_path = args.index_path or os.path.join(
@@ -285,6 +269,52 @@ def main() -> None:
     wp3_candidates = candidates
     del candidates  # alias removal; wp3_candidates keeps the list alive
     print(f"  Reusing {len(wp3_candidates)} candidates (in-memory, no reload)")
+
+    # Approx-match function patch — done here (after WP2/noise so we can
+    # pre-tokenize from the final candidate set) and BEFORE the Pool spawns
+    # so forked workers inherit the patched module + caches via COW.
+    if args.string_matcher == "jaccard":
+        import synthesis
+        from jaccard_similarity import normalize, char_ngrams
+        print("  Pre-tokenizing candidate values for Jaccard matcher...")
+        _t_pre = time.time()
+        # Build value -> char-2gram cache. Each lookup at scoring time becomes
+        # a single dict access instead of LRU+normalize+rebuild.
+        _ngrams: dict = {}
+        for c in wp3_candidates:
+            for l, r in c["pairs"]:
+                if l not in _ngrams:
+                    _ngrams[l] = char_ngrams(l, 2)
+                if r not in _ngrams:
+                    _ngrams[r] = char_ngrams(r, 2)
+        print(f"  Pre-tokenized {len(_ngrams)} unique values "
+              f"in {time.time() - _t_pre:.1f}s")
+
+        # Inline closure — bypasses the JaccardMatcher class dispatch (~6
+        # frames per call -> 2 frames per call). Combined with the prebuilt
+        # cache, this is ~3-5x faster than the previous lambda + LRU path.
+        def jaccard_match(a, b):
+            ga = _ngrams.get(a)
+            if ga is None:
+                ga = char_ngrams(a, 2)
+            gb = _ngrams.get(b)
+            if gb is None:
+                gb = char_ngrams(b, 2)
+            if not ga or not gb:
+                return not ga and not gb
+            inter = len(ga & gb)
+            return (inter / (len(ga) + len(gb) - inter)) >= 0.5
+
+        synthesis.approx_match = jaccard_match
+        print(f"  String matcher: Jaccard char-2gram (threshold=0.5, "
+              f"pre-tokenized)")
+    elif args.string_matcher == "jw":
+        import synthesis
+        from jaro_winkler import JaroWinklerMatcher
+        _jw = JaroWinklerMatcher(threshold=0.85)
+        synthesis.approx_match = lambda a, b: _jw.are_match(a, b)[0]
+        print(f"  String matcher: Jaro-Winkler (threshold=0.85)")
+
     with heartbeat("stage6-synthesis"):
         if args.parallel_workers > 1:
             from parallel_pipeline import parallel_greedy_partition
