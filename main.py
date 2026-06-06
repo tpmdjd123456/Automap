@@ -116,6 +116,11 @@ def parse_args() -> argparse.Namespace:
                         "(paper-strict, larger index). Cached indices "
                         "built under different flags are NOT compatible "
                         "(the default index path includes a suffix).")
+    p.add_argument("--no_save_index", action="store_true",
+                   help="Skip persisting the cooccurrence index to disk. "
+                        "Useful at scale where pickling a 10s-of-GB dict "
+                        "doubles peak RAM and risks OOM. Re-runs must "
+                        "rebuild the index from corpus.")
     return p.parse_args()
 
 
@@ -149,8 +154,12 @@ def main() -> None:
             index = build_cooccurrence_index(
                 corpus, skip_noise_values=skip_noise_values,
             )
-        save_index(index, index_path)
-        print(f"  Saved index to {index_path}")
+        if args.no_save_index:
+            print(f"  Skipping index persistence (--no_save_index)")
+        else:
+            with heartbeat("stage2-save-index"):
+                save_index(index, index_path)
+            print(f"  Saved index to {index_path}")
     index_summary(index)
     npmi_sanity(index)
     print(f"  Time: {time.time() - t0:.2f}s\n")
@@ -188,6 +197,12 @@ def main() -> None:
     threshold_sweep(scored, output_path=sweep_path)
     print(f"  Saved threshold sweep to {sweep_path}")
     print(f"  Time: {time.time() - t0:.2f}s\n")
+
+    # corpus + index are no longer needed downstream (filtered list takes over).
+    # Free them before Stage 5 to give WP2 and WP3 maximum RAM headroom.
+    import gc
+    del corpus, index, scored, kept, removed
+    gc.collect()
 
     # ---- Stage 5: Approximate-FD column-pair filter (WP2) -------------------
     print(f"[Stage 5/6] FD filtering (theta={args.theta}, "

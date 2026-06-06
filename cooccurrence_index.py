@@ -61,7 +61,7 @@ def build_cooccurrence_index(
                 value_count[v] += 1
             for u, v in combinations(distinct, 2):
                 cooccurrence[(u, v)] += 1
-    return dict(cooccurrence), dict(value_count), total_columns
+    return cooccurrence, value_count, total_columns
 
 
 def save_index(index: Index, filepath: str) -> None:
