@@ -163,13 +163,18 @@ def score_corpus(
 
 def test_npmi(index: Index) -> None:
     """Print sanity stats for an index. Verifies symmetry and range on a
-    sample of pairs and prints the highest-ranked pair. Helper for `main.py`,
-    not a pytest test."""
+    small sample of pairs and prints the highest-ranked pair.
+
+    All iteration streams from the cooc dict iterator — never materializes a
+    list over the full dict (at 1B+ entries that list alone is ~10 GB).
+    Helper for ``main.py``, not a pytest test.
+    """
+    import itertools
     cooc, _vc, _N, s2i = index
     if not cooc:
         print("  NPMI sanity: index is empty")
         return
-    # Top pair by raw co-occurrence (packed key → strings via reverse map).
+    # Top pair by raw co-occurrence — single pass via max().
     top_packed, top_count = max(cooc.items(), key=lambda kv: kv[1])
     id_to_str = {sid: s for s, sid in s2i.items()}
     a = top_packed >> 32
@@ -179,10 +184,9 @@ def test_npmi(index: Index) -> None:
         f"  NPMI sanity: top pair ({u}, {v}) count={top_count} "
         f"npmi={compute_npmi(u, v, index):.3f}"
     )
-    # Symmetry on first 100 pairs.
-    sample_keys = list(cooc.keys())[:100]
+    # Symmetry on first 100 pairs (stream via islice — no full materialization).
     sym_ok = True
-    for packed in sample_keys:
+    for packed in itertools.islice(cooc.keys(), 100):
         a, b = packed >> 32, packed & 0xFFFFFFFF
         su, sv = id_to_str[a], id_to_str[b]
         if compute_npmi(su, sv, index) != compute_npmi(sv, su, index):
@@ -191,7 +195,7 @@ def test_npmi(index: Index) -> None:
     print(f"  NPMI sanity: symmetric on first 100 pairs: {sym_ok}")
     # Range check on first 200 pairs.
     in_range = True
-    for packed in list(cooc.keys())[:200]:
+    for packed in itertools.islice(cooc.keys(), 200):
         a, b = packed >> 32, packed & 0xFFFFFFFF
         s = compute_npmi(id_to_str[a], id_to_str[b], index)
         if not (-1.0 <= s <= 1.0):

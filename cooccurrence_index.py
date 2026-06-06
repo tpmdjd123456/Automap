@@ -106,14 +106,19 @@ def load_index(filepath: str) -> Index:
 
 
 def index_summary(index: Index) -> None:
-    """Print top-20 most common co-occurring pairs to stdout."""
+    """Print top-20 most common co-occurring pairs to stdout.
+
+    Uses a streaming heap (``heapq.nlargest``) rather than ``sorted(...)`` so
+    we never materialize all 1B+ items as a Python list. At 1M+ table scale
+    the temporary list would itself cost ~80 GB and OOM.
+    """
+    import heapq
     cooc, _vc, N, str_to_id = index
-    # Build reverse map only for the top-20 lookup (small, transient).
-    top = sorted(cooc.items(), key=lambda kv: kv[1], reverse=True)[:20]
     print(f"  Processed {N} columns")
     print(f"  Found {len(cooc)} unique value pairs")
-    if not top:
+    if not cooc:
         return
+    top = heapq.nlargest(20, cooc.items(), key=lambda kv: kv[1])
     id_to_str: Dict[int, str] = {sid: s for s, sid in str_to_id.items()}
     print("  Top co-occurring pairs:")
     for packed, count in top:
