@@ -74,9 +74,13 @@ def filter_candidates_by_fd(
     `source_table_index`, `left_column_index`, `right_column_index`,
     `source_metadata`).
     """
+    from tqdm import tqdm
     candidates: List[Candidate] = []
     excluded_metadata_keys = {"relation", "coherence_scores", "rejected_column_indices"}
-    for table_idx, record in enumerate(filtered_records):
+    records_list = list(filtered_records)
+    for table_idx, record in enumerate(tqdm(
+        records_list, desc="FD filtering", unit="table", mininterval=30.0,
+    )):
         relation = record.get("relation", [])
         n = len(relation)
         if n < 2:

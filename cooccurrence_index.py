@@ -18,6 +18,8 @@ from collections import defaultdict
 from itertools import combinations
 from typing import Dict, List, Tuple
 
+from tqdm import tqdm
+
 from data_loader import Table
 
 Index = Tuple[Dict[Tuple[str, str], int], Dict[str, int], int]
@@ -28,7 +30,10 @@ def build_cooccurrence_index(corpus: List[Table]) -> Index:
     cooccurrence: Dict[Tuple[str, str], int] = defaultdict(int)
     value_count: Dict[str, int] = defaultdict(int)
     total_columns = 0
-    for _metadata, columns in corpus:
+    for _metadata, columns in tqdm(
+        corpus, desc="Building co-occurrence index", unit="table",
+        mininterval=30.0,
+    ):
         for col in columns:
             distinct = sorted(v for v in set(col) if v)
             if len(distinct) < 2:

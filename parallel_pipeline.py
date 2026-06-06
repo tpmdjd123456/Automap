@@ -318,6 +318,7 @@ def parallel_compute_initial_scores(
         processes=n_workers,
         initializer=_init_scoring_worker,
         initargs=(candidates, use_approx),
+        maxtasksperchild=100,
     ) as pool:
         for ci, cj, ps, ns in tqdm(
             pool.imap(_score_edge_worker, edges, chunksize=chunk_size),
@@ -346,6 +347,7 @@ def parallel_greedy_partition(
     chunk_size=1000,
     output_folder="output",
     theta_edge=0.85,
+    max_bucket_size=0,
 ):
     """Parallel sibling of synthesis.greedy_partition.
 
@@ -365,7 +367,9 @@ def parallel_greedy_partition(
     print(f"    left_index: {len(left_index)} unique left values")
 
     print(f"  Computing initial compatibility graph (parallel, {n_workers or mp.cpu_count()} workers)...")
-    overlapping_pairs = _build_overlap_set(pair_index, left_index, theta_overlap)
+    overlapping_pairs = _build_overlap_set(
+        pair_index, left_index, theta_overlap, max_bucket_size=max_bucket_size,
+    )
     pos_scores, neg_scores, positive_edges, blocking_edges = parallel_compute_initial_scores(
         overlapping_pairs, candidates, use_approx,
         n_workers=n_workers, chunk_size=chunk_size,

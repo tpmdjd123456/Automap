@@ -269,6 +269,7 @@ def _build_overlap_set(
     pair_index: Dict[Tuple[str, str], List[int]],
     left_index: Dict[str, List[int]],
     theta_overlap: int = 1,
+    max_bucket_size: int = 0,
 ) -> Set[Tuple[int, int]]:
     """Union of candidate-index pairs whose co-occurrence count in
     either ``pair_index`` (shared value pairs) or ``left_index``
@@ -280,12 +281,29 @@ def _build_overlap_set(
     (``Σ k·(k-1)/2`` across buckets). Acceptable on dama (251 GB) for
     corpora up to ~10k filtered tables; will OOM at very large scale —
     see the spec for the explicit single-machine limit.
+
+    ``max_bucket_size`` (default 0 = no cap, paper-strict) treats any
+    bucket with more than N entries as an IR-style stopword and drops it
+    entirely. The handful of mega-buckets (common integers, single-char
+    codes, ...) dominate the Σk² enumeration but their normalized w+ is
+    near-zero anyway, so they're mostly killed by ``theta_edge`` later.
+    Skipped buckets are reported on stdout.
     """
     from collections import Counter
 
+    pair_skipped = 0
+    left_skipped = 0
+
     pair_count: Counter = Counter()
-    for indices in pair_index.values():
+    for indices in tqdm(
+        pair_index.values(), total=len(pair_index),
+        desc="Overlap enum (pair buckets)", unit="bucket",
+        mininterval=30.0,
+    ):
         if len(indices) < 2:
+            continue
+        if max_bucket_size > 0 and len(indices) > max_bucket_size:
+            pair_skipped += 1
             continue
         for x in range(len(indices)):
             for y in range(x + 1, len(indices)):
@@ -295,8 +313,15 @@ def _build_overlap_set(
                 pair_count[(a, b)] += 1
 
     left_count: Counter = Counter()
-    for indices in left_index.values():
+    for indices in tqdm(
+        left_index.values(), total=len(left_index),
+        desc="Overlap enum (left buckets)", unit="bucket",
+        mininterval=30.0,
+    ):
         if len(indices) < 2:
+            continue
+        if max_bucket_size > 0 and len(indices) > max_bucket_size:
+            left_skipped += 1
             continue
         for x in range(len(indices)):
             for y in range(x + 1, len(indices)):
@@ -304,6 +329,10 @@ def _build_overlap_set(
                 if a > b:
                     a, b = b, a
                 left_count[(a, b)] += 1
+
+    if max_bucket_size > 0:
+        print(f"    max_bucket_size={max_bucket_size}: skipped "
+              f"{pair_skipped} pair buckets, {left_skipped} left buckets")
 
     return {k for k, v in pair_count.items() if v > theta_overlap} | \
            {k for k, v in left_count.items() if v > theta_overlap}
@@ -566,6 +595,7 @@ def greedy_partition(
     use_approx: bool = True,
     output_folder: str = "output",
     theta_edge: float = 0.85,
+    max_bucket_size: int = 0,
 ) -> List[Partition]:
     """Run greedy table synthesis (Algorithm 3 from the paper).
 
@@ -596,7 +626,9 @@ def greedy_partition(
     print(f"    left_index: {len(left_index)} unique left values")
 
     print(f"  Computing initial compatibility graph...")
-    overlapping_pairs = _build_overlap_set(pair_index, left_index, theta_overlap)
+    overlapping_pairs = _build_overlap_set(
+        pair_index, left_index, theta_overlap, max_bucket_size=max_bucket_size,
+    )
     pos_scores, neg_scores, positive_edges, blocking_edges = _compute_initial_scores(
         overlapping_pairs, candidates, use_approx, theta_edge=theta_edge,
     )

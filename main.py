@@ -54,6 +54,8 @@ from synthesis import (
 from conflict_resolution import (
     run_conflict_resolution,
 )
+from heartbeat import heartbeat
+from noise_filter import filter_candidates as filter_noise_candidates
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -98,6 +100,14 @@ def parse_args() -> argparse.Namespace:
                    help="Run WP3 initial scoring in parallel with N workers "
                         "(default 1 = sequential). Recommended on dama: 14 "
                         "(one per physical core); on laptop: 6.")
+    p.add_argument("--max_bucket_size", type=int, default=0,
+                   help="WP3 cap on inverted-index bucket size for overlap "
+                        "enumeration. 0 (default) = no cap, paper-strict. "
+                        "A positive N drops any bucket with >N candidates "
+                        "from overlap-set construction (treats common "
+                        "values as IR-style stopwords). Required at scale: "
+                        "uncapped enumeration is O(Sigma k^2) and OOMs "
+                        "above ~10k filtered tables. Typical: 1000.")
     return p.parse_args()
 
 
@@ -125,7 +135,8 @@ def main() -> None:
         print(f"  Loading cached index from {index_path}")
         index = load_index(index_path)
     else:
-        index = build_cooccurrence_index(corpus)
+        with heartbeat("stage2-cooccurrence-index"):
+            index = build_cooccurrence_index(corpus)
         save_index(index, index_path)
         print(f"  Saved index to {index_path}")
     index_summary(index)
@@ -135,7 +146,8 @@ def main() -> None:
     # ---- Stage 3: Score -----------------------------------------------------
     print("[Stage 3/6] Computing coherence scores...")
     t0 = time.time()
-    scored = score_corpus(corpus, index)
+    with heartbeat("stage3-coherence"):
+        scored = score_corpus(corpus, index)
     if scored:
         avg = sum(s for _, _, _, s in scored) / len(scored)
         top = max(scored, key=lambda x: x[3])
@@ -178,10 +190,19 @@ def main() -> None:
         }
         for metadata, columns, scores, rejected in filtered
     ]
-    candidates = filter_candidates_by_fd(
-        filtered_records, theta_threshold=args.theta, min_rows=args.min_rows
-    )
+    with heartbeat("stage5-fd-filter"):
+        candidates = filter_candidates_by_fd(
+            filtered_records, theta_threshold=args.theta, min_rows=args.min_rows
+        )
     candidates_summary(candidates)
+    n_before_noise = len(candidates)
+    candidates, drops = filter_noise_candidates(candidates)
+    if n_before_noise:
+        total_dropped = n_before_noise - len(candidates)
+        print(f"  Noise filter: dropped {total_dropped}/{n_before_noise} "
+              f"candidates ({100 * total_dropped / n_before_noise:.1f}%)")
+        for reason, n in sorted(drops.items(), key=lambda kv: -kv[1]):
+            print(f"    {reason}: {n}")
     candidates_path = os.path.join(args.output_folder, "candidates.jsonl")
     save_candidates(candidates, candidates_path)
     print(f"  Saved {len(candidates)} candidates to {candidates_path}")
@@ -192,26 +213,29 @@ def main() -> None:
     t0 = time.time()
     wp3_candidates = load_wp3_candidates(candidates_path)
     print(f"  Loaded {len(wp3_candidates)} candidates")
-    if args.parallel_workers > 1:
-        from parallel_pipeline import parallel_greedy_partition
-        partitions = parallel_greedy_partition(
-            wp3_candidates,
-            tau=args.tau,
-            theta_overlap=args.theta_overlap,
-            use_approx=not args.no_approx,
-            n_workers=args.parallel_workers,
-            output_folder=args.output_folder,
-            theta_edge=args.theta_edge,
-        )
-    else:
-        partitions = greedy_partition(
-            wp3_candidates,
-            tau=args.tau,
-            theta_overlap=args.theta_overlap,
-            use_approx=not args.no_approx,
-            output_folder=args.output_folder,
-            theta_edge=args.theta_edge,
-        )
+    with heartbeat("stage6-synthesis"):
+        if args.parallel_workers > 1:
+            from parallel_pipeline import parallel_greedy_partition
+            partitions = parallel_greedy_partition(
+                wp3_candidates,
+                tau=args.tau,
+                theta_overlap=args.theta_overlap,
+                use_approx=not args.no_approx,
+                n_workers=args.parallel_workers,
+                output_folder=args.output_folder,
+                theta_edge=args.theta_edge,
+                max_bucket_size=args.max_bucket_size,
+            )
+        else:
+            partitions = greedy_partition(
+                wp3_candidates,
+                tau=args.tau,
+                theta_overlap=args.theta_overlap,
+                use_approx=not args.no_approx,
+                output_folder=args.output_folder,
+                theta_edge=args.theta_edge,
+                max_bucket_size=args.max_bucket_size,
+            )
     synthesis_report(partitions, wp3_candidates)
     mappings_path = os.path.join(args.output_folder, "synthesized_mappings.jsonl")
     save_synthesized_mappings(partitions, wp3_candidates, mappings_path)

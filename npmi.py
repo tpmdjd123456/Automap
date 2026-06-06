@@ -94,8 +94,11 @@ def score_corpus(corpus: List[Table], index: Index) -> List[ScoredColumn]:
     tuples. `col_idx` is the column's position within the (already-loaded
     and pre-filtered) table, not its original position in `relation`.
     """
+    from tqdm import tqdm
     out: List[ScoredColumn] = []
-    for ti, (_metadata, columns) in enumerate(corpus):
+    for ti, (_metadata, columns) in enumerate(tqdm(
+        corpus, desc="Scoring coherence", unit="table", mininterval=30.0,
+    )):
         for ci, col in enumerate(columns):
             out.append((ti, ci, col, compute_coherence(col, index)))
     return out
