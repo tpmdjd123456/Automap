@@ -370,6 +370,11 @@ def parallel_greedy_partition(
     overlapping_pairs = _build_overlap_set(
         pair_index, left_index, theta_overlap, max_bucket_size=max_bucket_size,
     )
+    # pair_index / left_index dead after _build_overlap_set; free before the
+    # worker pool spawns (each fork inherits the parent's RSS via COW).
+    import gc
+    del pair_index, left_index
+    gc.collect()
     pos_scores, neg_scores, positive_edges, blocking_edges = parallel_compute_initial_scores(
         overlapping_pairs, candidates, use_approx,
         n_workers=n_workers, chunk_size=chunk_size,

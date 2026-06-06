@@ -181,6 +181,12 @@ def main() -> None:
         print(f"  Lowest:  {bot[2][:5]}{'...' if len(bot[2]) > 5 else ''} -> {bot[3]:.3f}")
     print(f"  Time: {time.time() - t0:.2f}s\n")
 
+    # index is dead after Stage 3 (Stage 4 only reads `scored` + `corpus`).
+    # At 1M+ scale that's ~150 GB held for an extra ~90s; free immediately.
+    import gc
+    del index
+    gc.collect()
+
     # ---- Stage 4: Filter (WP1) ----------------------------------------------
     print("[Stage 4/6] Filtering columns (PMI coherence)...")
     t0 = time.time()
@@ -198,10 +204,9 @@ def main() -> None:
     print(f"  Saved threshold sweep to {sweep_path}")
     print(f"  Time: {time.time() - t0:.2f}s\n")
 
-    # corpus + index are no longer needed downstream (filtered list takes over).
-    # Free them before Stage 5 to give WP2 and WP3 maximum RAM headroom.
-    import gc
-    del corpus, index, scored, kept, removed
+    # corpus + scored + kept + removed all dead after Stage 4: WP2 reads only
+    # `filtered`, and at 1M corpus alone is ~20 GB.
+    del corpus, scored, kept, removed
     gc.collect()
 
     # ---- Stage 5: Approximate-FD column-pair filter (WP2) -------------------
@@ -219,10 +224,18 @@ def main() -> None:
         }
         for metadata, columns, scores, rejected in filtered
     ]
+    # `filtered` is fully copied into filtered_records; drop the original.
+    del filtered
+    gc.collect()
+
     with heartbeat("stage5-fd-filter"):
         candidates = filter_candidates_by_fd(
             filtered_records, theta_threshold=args.theta, min_rows=args.min_rows
         )
+    # WP2 has consumed filtered_records into `candidates`; drop the source.
+    del filtered_records
+    gc.collect()
+
     candidates_summary(candidates)
     n_before_noise = len(candidates)
     candidates, drops = filter_noise_candidates(candidates)
@@ -240,8 +253,14 @@ def main() -> None:
     # ---- Stage 6: Table Synthesis (WP3) ----------------------------------
     print(f"[Stage 6/6] Table synthesis (tau={args.tau})...")
     t0 = time.time()
-    wp3_candidates = load_wp3_candidates(candidates_path)
-    print(f"  Loaded {len(wp3_candidates)} candidates")
+    # Skip the disk round-trip: `candidates` is already in memory and just
+    # needs pair lists -> tuples to match load_wp3_candidates' format.
+    # In-place so we don't briefly hold two copies at 1M+ scale.
+    for c in candidates:
+        c["pairs"] = [tuple(p) for p in c["pairs"]]
+    wp3_candidates = candidates
+    del candidates  # alias removal; wp3_candidates keeps the list alive
+    print(f"  Reusing {len(wp3_candidates)} candidates (in-memory, no reload)")
     with heartbeat("stage6-synthesis"):
         if args.parallel_workers > 1:
             from parallel_pipeline import parallel_greedy_partition

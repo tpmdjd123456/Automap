@@ -640,6 +640,11 @@ def greedy_partition(
     overlapping_pairs = _build_overlap_set(
         pair_index, left_index, theta_overlap, max_bucket_size=max_bucket_size,
     )
+    # pair_index / left_index are dead after _build_overlap_set; free before
+    # scoring (at 1M+ scale they're ~5 GB held through 45 min of scoring).
+    import gc
+    del pair_index, left_index
+    gc.collect()
     pos_scores, neg_scores, positive_edges, blocking_edges = _compute_initial_scores(
         overlapping_pairs, candidates, use_approx, theta_edge=theta_edge,
     )
