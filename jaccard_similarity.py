@@ -20,15 +20,22 @@ Paper reference: This is an original contribution extending §4.1
 from __future__ import annotations
 
 import re
-from typing import List, Set, Tuple
+from functools import lru_cache
+from typing import FrozenSet, List, Set, Tuple
 
 
 # ---------------------------------------------------------------------------
 # Text normalization
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=500_000)
 def normalize(text: str) -> str:
-    """Normalize text before comparison."""
+    """Normalize text before comparison.
+
+    Cached: in WP3 scoring the same string value is normalized millions of
+    times across candidate pair comparisons. lru_cache keys on the input
+    string and returns the cached normalized form.
+    """
     text = text.lower().strip()
     text = re.sub(r"\(.*?\)", "", text)
     text = re.sub(r"(?<=[a-z])\.(?=[a-z])", "", text)
@@ -41,38 +48,32 @@ def normalize(text: str) -> str:
 # N-gram generation
 # ---------------------------------------------------------------------------
 
-def char_ngrams(text: str, n: int = 2) -> Set[str]:
+@lru_cache(maxsize=500_000)
+def char_ngrams(text: str, n: int = 2) -> FrozenSet[str]:
     """Generate character n-grams from text.
-    
-    Args:
-        text: input string
-        n: size of each n-gram (default 2 = bigrams)
-        
-    Returns:
-        Set of n-gram strings
+
+    Returns a frozenset (immutable) so the cached value is safe to share
+    across many calls. WP3 scoring calls this with the same strings
+    millions of times; caching is the single biggest speedup.
     """
     text = normalize(text)
     if len(text) < n:
-        return {text} if text else set()
-    return {text[i:i+n] for i in range(len(text) - n + 1)}
+        return frozenset({text}) if text else frozenset()
+    return frozenset(text[i:i + n] for i in range(len(text) - n + 1))
 
 
-def word_ngrams(text: str, n: int = 1) -> Set[str]:
+@lru_cache(maxsize=500_000)
+def word_ngrams(text: str, n: int = 1) -> FrozenSet[str]:
     """Generate word n-grams from text.
-    
-    Args:
-        text: input string
-        n: size of each n-gram (default 1 = unigrams)
-        
-    Returns:
-        Set of word n-gram strings
+
+    Cached frozenset, same rationale as ``char_ngrams``.
     """
     words = normalize(text).split()
     if n == 1:
-        return set(words)
+        return frozenset(words)
     if len(words) < n:
-        return {" ".join(words)} if words else set()
-    return {" ".join(words[i:i+n]) for i in range(len(words) - n + 1)}
+        return frozenset({" ".join(words)}) if words else frozenset()
+    return frozenset(" ".join(words[i:i + n]) for i in range(len(words) - n + 1))
 
 
 # ---------------------------------------------------------------------------
