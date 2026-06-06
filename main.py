@@ -121,12 +121,36 @@ def parse_args() -> argparse.Namespace:
                         "Useful at scale where pickling a 10s-of-GB dict "
                         "doubles peak RAM and risks OOM. Re-runs must "
                         "rebuild the index from corpus.")
+    p.add_argument("--string_matcher", choices=["edit", "jaccard", "jw"],
+                   default="edit",
+                   help="WP3 approximate-match function. 'edit' (default, "
+                        "paper-strict) uses banded edit distance. 'jaccard' "
+                        "uses char-2gram Jaccard (faster, more permissive on "
+                        "tokenized text). 'jw' uses Jaro-Winkler (fast, good "
+                        "for short tokens). Only applies when --no_approx is "
+                        "NOT set.")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     skip_noise_values = not args.no_skip_noise_values
+
+    # Optionally swap the approximate-match function. Done BEFORE Pool() spawns
+    # so workers inherit the patched module via fork (COW). No effect when
+    # --no_approx is set (matching is exact equality).
+    if args.string_matcher == "jaccard":
+        import synthesis
+        from jaccard_similarity import JaccardMatcher
+        _jm = JaccardMatcher(threshold=0.5)
+        synthesis.approx_match = lambda a, b: _jm.are_match(a, b)[0]
+        print(f"  String matcher: Jaccard char-2gram (threshold=0.5)")
+    elif args.string_matcher == "jw":
+        import synthesis
+        from jaro_winkler import JaroWinklerMatcher
+        _jw = JaroWinklerMatcher(threshold=0.85)
+        synthesis.approx_match = lambda a, b: _jw.are_match(a, b)[0]
+        print(f"  String matcher: Jaro-Winkler (threshold=0.85)")
     os.makedirs(args.output_folder, exist_ok=True)
     index_suffix = "skipnoise" if skip_noise_values else "full"
     index_path = args.index_path or os.path.join(
