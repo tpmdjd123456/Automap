@@ -290,10 +290,15 @@ def _build_overlap_set(
     Skipped buckets are reported on stdout.
     """
     from collections import Counter
+    import gc
 
     pair_skipped = 0
     left_skipped = 0
+    result: Set[Tuple[int, int]] = set()
 
+    # Phase 1: build pair_count from pair_index, promote qualifying pairs to
+    # `result`, then DROP the Counter before starting phase 2. This halves
+    # peak Counter memory vs holding pair_count + left_count alive together.
     pair_count: Counter = Counter()
     for indices in tqdm(
         pair_index.values(), total=len(pair_index),
@@ -311,7 +316,11 @@ def _build_overlap_set(
                 if a > b:
                     a, b = b, a
                 pair_count[(a, b)] += 1
+    result.update(k for k, v in pair_count.items() if v > theta_overlap)
+    del pair_count
+    gc.collect()
 
+    # Phase 2: left_count, same pattern.
     left_count: Counter = Counter()
     for indices in tqdm(
         left_index.values(), total=len(left_index),
@@ -329,13 +338,15 @@ def _build_overlap_set(
                 if a > b:
                     a, b = b, a
                 left_count[(a, b)] += 1
+    result.update(k for k, v in left_count.items() if v > theta_overlap)
+    del left_count
+    gc.collect()
 
     if max_bucket_size > 0:
         print(f"    max_bucket_size={max_bucket_size}: skipped "
               f"{pair_skipped} pair buckets, {left_skipped} left buckets")
 
-    return {k for k, v in pair_count.items() if v > theta_overlap} | \
-           {k for k, v in left_count.items() if v > theta_overlap}
+    return result
 
 
 def _compute_initial_scores(

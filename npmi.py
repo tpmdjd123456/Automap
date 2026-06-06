@@ -69,14 +69,25 @@ def compute_npmi(u: str, v: str, index: Index) -> float:
     return max(-1.0, min(1.0, npmi))
 
 
-def compute_coherence(column: List[str], index: Index) -> float:
+def compute_coherence(
+    column: List[str], index: Index, skip_noise_values: bool = True,
+) -> float:
     """Mean NPMI over all distinct unordered value pairs of `column`.
 
-    Returns -1.0 if the column has fewer than 2 unique values (degenerate;
-    the loader normally filters these out, but compute_coherence is safe to
-    call directly).
+    With ``skip_noise_values=True`` (default), pure-numeric / hex / placeholder
+    tokens are excluded — must match how the index was built (see
+    ``build_cooccurrence_index``). Mismatch produces silently-wrong scores
+    because lookups for filtered values return NPMI=-1.
+
+    Returns -1.0 if the column has fewer than 2 indexable unique values.
     """
-    distinct = sorted(v for v in set(column) if v)
+    from noise_filter import is_noise_value
+    if skip_noise_values:
+        distinct = sorted(
+            v for v in set(column) if v and not is_noise_value(v)
+        )
+    else:
+        distinct = sorted(v for v in set(column) if v)
     if len(distinct) < 2:
         return -1.0
     total = 0.0
@@ -87,8 +98,12 @@ def compute_coherence(column: List[str], index: Index) -> float:
     return total / n
 
 
-def score_corpus(corpus: List[Table], index: Index) -> List[ScoredColumn]:
+def score_corpus(
+    corpus: List[Table], index: Index, skip_noise_values: bool = True,
+) -> List[ScoredColumn]:
     """Score every column in the corpus.
+
+    ``skip_noise_values`` must match the flag used at index build time.
 
     Returns a list of `(table_idx, col_idx, column_values, coherence_score)`
     tuples. `col_idx` is the column's position within the (already-loaded
@@ -100,7 +115,9 @@ def score_corpus(corpus: List[Table], index: Index) -> List[ScoredColumn]:
         corpus, desc="Scoring coherence", unit="table", mininterval=30.0,
     )):
         for ci, col in enumerate(columns):
-            out.append((ti, ci, col, compute_coherence(col, index)))
+            out.append((ti, ci, col, compute_coherence(
+                col, index, skip_noise_values=skip_noise_values,
+            )))
     return out
 
 

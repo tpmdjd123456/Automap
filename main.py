@@ -108,14 +108,24 @@ def parse_args() -> argparse.Namespace:
                         "values as IR-style stopwords). Required at scale: "
                         "uncapped enumeration is O(Sigma k^2) and OOMs "
                         "above ~10k filtered tables. Typical: 1000.")
+    p.add_argument("--no_skip_noise_values", action="store_true",
+                   help="Stage 2/3 paper-strict mode. By default the "
+                        "cooccurrence index and coherence scoring skip "
+                        "pure-numeric / hex / placeholder tokens at the "
+                        "value level. Pass this flag to retain them "
+                        "(paper-strict, larger index). Cached indices "
+                        "built under different flags are NOT compatible "
+                        "(the default index path includes a suffix).")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    skip_noise_values = not args.no_skip_noise_values
     os.makedirs(args.output_folder, exist_ok=True)
+    index_suffix = "skipnoise" if skip_noise_values else "full"
     index_path = args.index_path or os.path.join(
-        args.output_folder, "cooccurrence_index.pkl"
+        args.output_folder, f"cooccurrence_index_{index_suffix}.pkl"
     )
     table_types = tuple(t.strip() for t in args.table_types.split(",") if t.strip())
 
@@ -136,7 +146,9 @@ def main() -> None:
         index = load_index(index_path)
     else:
         with heartbeat("stage2-cooccurrence-index"):
-            index = build_cooccurrence_index(corpus)
+            index = build_cooccurrence_index(
+                corpus, skip_noise_values=skip_noise_values,
+            )
         save_index(index, index_path)
         print(f"  Saved index to {index_path}")
     index_summary(index)
@@ -147,7 +159,9 @@ def main() -> None:
     print("[Stage 3/6] Computing coherence scores...")
     t0 = time.time()
     with heartbeat("stage3-coherence"):
-        scored = score_corpus(corpus, index)
+        scored = score_corpus(
+            corpus, index, skip_noise_values=skip_noise_values,
+        )
     if scored:
         avg = sum(s for _, _, _, s in scored) / len(scored)
         top = max(scored, key=lambda x: x[3])

@@ -48,6 +48,16 @@ def _is_placeholder(v: str) -> bool:
     return v.strip().lower() in _PLACEHOLDERS
 
 
+def is_noise_value(v: str) -> bool:
+    """True iff value matches the column-level Vertica filter at the value level.
+
+    Used by build_cooccurrence_index and compute_coherence to skip pure-numeric /
+    hex / placeholder tokens *within* surviving mixed columns. These values
+    contribute near-zero NPMI signal but dominate index size at scale.
+    """
+    return _is_num(v) or _is_hex(v) or _is_placeholder(v)
+
+
 def _is_rank_run(vals: Sequence[str]) -> bool:
     """True iff `vals` are a consecutive integer sequence (any order)
     anchored at 0 or 1, e.g. {1,2,…,n} or {0,1,…,n-1}, length >= 3."""
