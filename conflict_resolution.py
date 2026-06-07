@@ -68,30 +68,45 @@ def resolve_conflicts(pairs: MappingTable) -> MappingTable:
 
     Returns:
         A new list of (left, right) pairs with no conflicts.
+
+    Implementation: tracks membership in a set (O(1) lookup / removal) so
+    the inner ``(l, r) in current`` check is O(1) instead of O(P).
+    At very large partition sizes (e.g. P=10993, n_conflicts ~thousands)
+    the prior O(P^3) cost made WP4 effectively infinite; this is O(P + C^2).
+    Original input order is preserved on the way out.
     """
-    # Work with a mutable copy
-    current: List[Tuple[str, str]] = list(pairs)
+    current: Set[Tuple[str, str]] = set(pairs)
 
     while True:
-        conflicts = find_conflicts(current)
+        # find_conflicts wants a list/iterable; the set iter works.
+        left_to_rights: Dict[str, Set[str]] = defaultdict(set)
+        for left, right in current:
+            left_to_rights[left].add(right)
+        conflicts = {
+            left: sorted(rights)
+            for left, rights in left_to_rights.items()
+            if len(rights) > 1
+        }
         if not conflicts:
             break
 
-        # Count how many conflicts each (left, right) pair is involved in
+        # Count how many conflicts each (left, right) pair is involved in.
         conflict_count: Dict[Tuple[str, str], int] = defaultdict(int)
         for left, rights in conflicts.items():
             for right in rights:
-                if (left, right) in [p for p in current]:
-                    conflict_count[(left, right)] += len(rights) - 1
+                pair = (left, right)
+                if pair in current:  # O(1) set lookup
+                    conflict_count[pair] += len(rights) - 1
 
         if not conflict_count:
             break
 
-        # Remove the pair involved in the most conflicts
+        # Remove the pair involved in the most conflicts.
         worst_pair = max(conflict_count, key=lambda p: conflict_count[p])
-        current = [p for p in current if p != worst_pair]
+        current.discard(worst_pair)
 
-    return current
+    # Preserve original input order in the output.
+    return [p for p in pairs if p in current]
 
 
 # ---------------------------------------------------------------------------
