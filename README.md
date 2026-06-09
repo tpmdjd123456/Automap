@@ -37,7 +37,7 @@ Paper-faithful exact-match path (fast at any scale):
 ```bash
 python main.py \
     --corpus_path data/vertica_filtered_1500k.jsonl \
-    --output_folder output/paper_conformance_v1500k_noapprox/ \
+    --output_folder output/results_1500k_noapprox/ \
     --threshold 0.3 --theta 0.95 \
     --parallel_workers 8 \
     --max_bucket_size 250 \
@@ -51,7 +51,7 @@ that exact match misses; slower):
 ```bash
 python main.py \
     --corpus_path data/vertica_filtered_1500k.jsonl \
-    --output_folder output/paper_conformance_v1500k_jaccard/ \
+    --output_folder output/results_1500k_jaccard/ \
     --threshold 0.3 --theta 0.95 \
     --parallel_workers 8 \
     --max_bucket_size 250 \

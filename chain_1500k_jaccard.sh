@@ -4,7 +4,7 @@ set -u
 cd ~/Automap
 
 CORPUS=data/vertica_filtered_1500k.jsonl
-OUTDIR=output/paper_conformance_v1500k_jaccard
+OUTDIR=output/results_1500k_jaccard
 EXTRACT_LOG=extract_1500k_retry.log
 PIPELINE_LOG=run_paper_v1500k_jaccard.log
 
