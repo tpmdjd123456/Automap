@@ -54,6 +54,96 @@ _HEX = re.compile(r"^(?:#|0x)[0-9a-fA-F]+$")
 # real measurement in many contexts (counts, scores).
 _PLACEHOLDERS = frozenset({"", "-", "--", "—", "n/a", "na", "null", "none", "?"})
 
+_CURRENCY_RE = re.compile(
+    r'[$€£¥₹₩₺₽¢][\s]?\d|'       # symbol before number
+    r'\d[\s]?[$€£¥₹₩₺₽¢]',        # symbol after number
+    re.IGNORECASE,
+)
+
+_DATE_RE = re.compile(
+    r'''
+    (?:
+        \d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?   # 04.10 | 05/07/1999 | 06-11-2012
+      | \d{4}[./-]\d{1,2}[./-]\d{1,2}           # 1999-07-05 (ISO)
+    )$
+    ''',
+    re.VERBOSE,
+)
+
+_YEAR_RE    = re.compile(r'^(19|20)\d{2}$')          # 1900–2099
+_PURE_NUM_RE = re.compile(r'^[+\-]?[\d][\d ,._]*(?:e[+\-]?\d+)?$', re.IGNORECASE)
+# matches: 42  0.5  23,232,230  1_000  1.5e10  +3  -0.7
+
+_BOOL_TOKENS = {"true","false","yes","no","on","off","0","1","t","f","y","n"}
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    r'|^[0-9a-f]{32}$',           # compact form
+    re.IGNORECASE,
+)
+_URL_RE   = re.compile(r'^https?://', re.IGNORECASE)
+_PATH_RE  = re.compile(r'^(?:/[\w.\-]+)+/?$|^[A-Za-z]:\\', )
+_REPEAT_RE = re.compile(r'^([^a-zA-Z0-9])\1{2,}$')   # ---- ???? ......
+
+
+def _is_date_like(value: str) -> bool:
+    """Return True if the value looks like a date or a standalone year."""
+    v = value.strip()
+    return bool(_YEAR_RE.match(v) or _DATE_RE.match(v))
+
+
+def _is_pure_numeric_string(value: str) -> bool:
+    """
+    True when the value is a number written as a string,
+    but NOT a year or date expression.
+    """
+    v = value.strip()
+    if _is_date_like(v):
+        return False
+    return bool(_PURE_NUM_RE.match(v))
+
+
+def _is_number_dominated(value: str) -> bool:
+    """
+    True when digits outnumber ASCII letters in the string,
+    AND there is at least one letter (otherwise int->int catches it).
+    Keeps 'Building 14', 'Room 3A'; drops '14B3Z9', 'A1B2C3D4'.
+    Date-like values are excluded first.
+    """
+    v = value.strip()
+    if _is_date_like(v):
+        return False
+    letters = sum(c.isalpha() for c in v)
+    digits  = sum(c.isdigit() for c in v)
+    # must have both kinds, and digits must dominate
+    return letters > 0 and digits > letters
+
+
+def _is_currency_value(value: str) -> bool:
+    return bool(_CURRENCY_RE.search(value.strip()))
+
+
+def _check_constant_pair(pairs):
+    """One entire column is a single repeated constant."""
+    lefts  = {str(l) for l, _ in pairs}
+    rights = {str(r) for _, r in pairs}
+    if len(lefts) == 1 or len(rights) == 1:
+        return True, "constant_pair"
+    return False, None
+
+def _check_index_offset_pair(pairs):
+    """L and R are both consecutive integer runs (possibly offset from each other)."""
+    try:
+        ls = [int(l) for l, _ in pairs]
+        rs = [int(r) for _, r in pairs]
+    except (ValueError, TypeError):
+        return False, None
+    def _is_run(seq):
+        return seq == list(range(seq[0], seq[0] + len(seq)))
+    if _is_run(sorted(ls)) and _is_run(sorted(rs)):
+        return True, "index_offset_pair"
+    return False, None
+
+
 
 def _is_num(v: str) -> bool:
     return bool(_NUM.match(v.strip()))
