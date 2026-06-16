@@ -1,8 +1,8 @@
-"""Drop non-informational candidates before greedy_partition (WP3).
+r"""Drop non-informational candidates before greedy_partition (WP3).
 
 A candidate is a list of (left, right) pairs from one table's column-pair. We
 drop the candidate when the pair set has no mapping content worth synthesizing
-across tables. Rules are intentionally narrow Ã¢ÂÂ they target patterns that the
+across tables. Rules are intentionally narrow — they target patterns that the
 advisor's "no scenario where this would be useful" test rules out.
 
 See `is_noise(pairs)` for the predicate. Returns (drop: bool, reason: str|None).
@@ -18,7 +18,7 @@ Reasons (for reporting):
                           (1900-2099) and date patterns (04.10, 05/07/1999,
                           06-11-2012) are excluded and kept
   currency_value        - at least one side of every pair contains a currency
-                          symbol paired with a number (e.g. $9.99, 14.00Ã¢ÂÂ¬, ÃÂ£3)
+                          symbol paired with a number (e.g. $9.99, 14.00€, £3)
   number_dominated      - at least one side of every pair contains both letters
                           and digits but digits outnumber letters (e.g. 14B3Z9,
                           A1B2C3D4); strings like 'Building 14' or 'Room 3A'
@@ -44,19 +44,19 @@ import re
 from typing import List, Optional, Sequence, Tuple
 
 # A "number" for our purposes: optional sign, digits, optional single decimal
-# group with `.` or `,`. Deliberately strict Ã¢ÂÂ we don't want to match "$1.2m"
+# group with `.` or `,`. Deliberately strict — we don't want to match "$1.2m"
 # or "-0.0%" as numeric (those still have signal as text).
 _NUM = re.compile(r"^-?\d+(?:[.,]\d+)?$")
 _INT = re.compile(r"^-?\d+$")
 _HEX = re.compile(r"^(?:#|0x)[0-9a-fA-F]+$")
 
-# Tokens that mean "no value" in web tables. `0` is *not* a placeholder Ã¢ÂÂ it's a
+# Tokens that mean "no value" in web tables. `0` is *not* a placeholder — it's a
 # real measurement in many contexts (counts, scores).
-_PLACEHOLDERS = frozenset({"", "-", "--", "Ã¢ÂÂ", "n/a", "na", "null", "none", "?"})
+_PLACEHOLDERS = frozenset({"", "-", "--", "—", "n/a", "na", "null", "none", "?"})
 
 _CURRENCY_RE = re.compile(
-    r'[$Ã¢ÂÂ¬ÃÂ£ÃÂ¥Ã¢ÂÂ¹Ã¢ÂÂ©Ã¢ÂÂºÃ¢ÂÂ½ÃÂ¢][\s]?\d|'       # symbol before number
-    r'\d[\s]?[$Ã¢ÂÂ¬ÃÂ£ÃÂ¥Ã¢ÂÂ¹Ã¢ÂÂ©Ã¢ÂÂºÃ¢ÂÂ½ÃÂ¢]',        # symbol after number
+    r'[$€£¥₹₩₺₽¢][\s]?\d|'       # symbol before number
+    r'\d[\s]?[$€£¥₹₩₺₽¢]',        # symbol after number
     re.IGNORECASE,
 )
 
@@ -70,7 +70,7 @@ _DATE_RE = re.compile(
     re.VERBOSE,
 )
 
-_YEAR_RE    = re.compile(r'^(19|20)\d{2}$')          # 1900Ã¢ÂÂ2099
+_YEAR_RE    = re.compile(r'^(19|20)\d{2}$')          # 1900–2099
 _PURE_NUM_RE = re.compile(r'^[+\-]?[\d][\d ,._]*(?:e[+\-]?\d+)?$', re.IGNORECASE)
 # matches: 42  0.5  23,232,230  1_000  1.5e10  +3  -0.7
 
@@ -173,7 +173,7 @@ def is_noise_value(v: str) -> bool:
 
 def _is_rank_run(vals: Sequence[str]) -> bool:
     """True iff `vals` are a consecutive integer sequence (any order)
-    anchored at 0 or 1, e.g. {1,2,Ã¢ÂÂ¦,n} or {0,1,Ã¢ÂÂ¦,n-1}, length >= 3."""
+    anchored at 0 or 1, e.g. {1,2,…,n} or {0,1,…,n-1}, length >= 3."""
     if len(vals) < 3 or not all(_is_int(v) for v in vals):
         return False
     nums = sorted(int(v) for v in vals)
@@ -232,6 +232,7 @@ def _is_url_or_path_value(v):
     v = str(v).strip()
     return bool(_URL_RE.match(v) or _PATH_RE.match(v))
 
+
 def _check_url_or_path(pairs):
     if all(
         _is_url_or_path_value(l) or _is_url_or_path_value(r)
@@ -263,7 +264,7 @@ def is_noise(pairs: Sequence[Tuple[str, str]]) -> Tuple[bool, Optional[str]]:
     lefts  = [p[0] for p in pairs]
     rights = [p[1] for p in pairs]
 
-    # Ã¢ÂÂÃ¢ÂÂ original rules Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+    # ── original rules ────────────────────────────────────────────────────────
     if all(_is_num(v) for v in lefts) and all(_is_num(v) for v in rights):
         return True, "int->int"
 
@@ -276,7 +277,7 @@ def is_noise(pairs: Sequence[Tuple[str, str]]) -> Tuple[bool, Optional[str]]:
     if all(_is_placeholder(l) or _is_placeholder(r) for l, r in pairs):
         return True, "placeholder_dominated"
 
-    # Ã¢ÂÂÃ¢ÂÂ new rules Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+    # ── new rules ─────────────────────────────────────────────────────────────
     if all(_is_pure_numeric_string(str(l)) or _is_pure_numeric_string(str(r))
            for l, r in pairs):
         return True, "numeric_string"

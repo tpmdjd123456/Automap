@@ -16,6 +16,11 @@ Vertica DB runs on `big-dama-1`; dama executes the client + the pipeline.
 | ↳ Step 2 only (parallel scoring of 29.66 M edges) | | | | 4,102 s (68 min) | ~6× from 14 cores (long-tail bound) |
 | ↳ Step 3 only (serial merge loop, 16,115 merges) | | | | 1,803 s (30 min) | unchanged by parallelism |
 | Vertica full column-verdict scan | 2026-06-03 | 8.3 B rows | `SELECT verdict, COUNT(*)` | **1,732 s (29 min)** | summary only, no materialization |
+| Paper-conformance WDC | 2026-06-04 | same 33,283 WDC candidates | full `main.py` | **139.75 s (2.33 min)** | dama, 14 workers, `--no_approx`, defaults `--theta_edge=0.85` and `--theta_overlap=3`. ~6.37 M overlap edges (vs 29.66 M), 157,868 positive edges (vs 1.36 M), **24,298 connected components → merge loop in seconds**. Output: 24,323 partitions (89.6% singletons, 2,541 multi-table). |
+| ↳ vs sequential baseline | | | | | **184× speedup** |
+| ↳ vs parallel-only baseline | | | | | **43.8× speedup** |
+| Paper-conformance Vertica 10k | 2026-06-04 | 150,757 candidates from 10k filtered wikitables | full `main.py` | **678.69 s (11.3 min)** | dama, 14 workers, `--no_approx`. 39,940 positive edges (vs prev. 70,352,948, ~1,760× fewer), **145,817 connected components (largest = 182)**. Output: 145,922 partitions (98.7% singletons, 1,903 multi-table). Top mappings: rank→name, rank→score, rank→time. |
+| ↳ vs prior 4-day projection on same corpus | | | | | **~510× faster** |
 
 ## This experiment
 
