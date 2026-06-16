@@ -54,6 +54,8 @@ from synthesis import (
 from conflict_resolution import (
     run_conflict_resolution,
 )
+from heartbeat import heartbeat
+from noise_filter import filter_candidates as filter_noise_candidates
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -82,18 +84,61 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tau", type=float, default=-0.2,
                    help="WP3 negative-weight threshold (default -0.2)")
     p.add_argument("--no_approx", action="store_true",
-                   help="WP3 disable approximate string matching")
-    p.add_argument("--theta_overlap", type=int, default=1,
-                   help="WP3 minimum shared pairs to consider a candidate pair "
-                        "(default 1)")
+                   help="WP3 disable approximate string matching. "
+                        "Required for paper-strict mode: under --no_approx "
+                        "the scoring functions match Wang & He (SIGMOD 2017) "
+                        "Equations 3 and 4 exactly.")
+    p.add_argument("--theta_overlap", type=int, default=3,
+                   help="WP3 minimum bucket co-occurrence count to admit a "
+                        "candidate pair (default 3 per Wang & He §4.1). "
+                        "Set to 1 to match pre-paper-conformance behavior.")
+    p.add_argument("--theta_edge", type=float, default=0.85,
+                   help="WP3 minimum normalized w+ to admit a positive edge "
+                        "(default 0.85 per Wang & He §5.4). Set to 0.0 to "
+                        "disable filtering (pre-paper-conformance behavior).")
+    p.add_argument("--parallel_workers", type=int, default=1,
+                   help="Run WP3 initial scoring in parallel with N workers "
+                        "(default 1 = sequential). Recommended on dama: 14 "
+                        "(one per physical core); on laptop: 6.")
+    p.add_argument("--max_bucket_size", type=int, default=0,
+                   help="WP3 cap on inverted-index bucket size for overlap "
+                        "enumeration. 0 (default) = no cap, paper-strict. "
+                        "A positive N drops any bucket with >N candidates "
+                        "from overlap-set construction (treats common "
+                        "values as IR-style stopwords). Required at scale: "
+                        "uncapped enumeration is O(Sigma k^2) and OOMs "
+                        "above ~10k filtered tables. Typical: 1000.")
+    p.add_argument("--no_skip_noise_values", action="store_true",
+                   help="Stage 2/3 paper-strict mode. By default the "
+                        "cooccurrence index and coherence scoring skip "
+                        "pure-numeric / hex / placeholder tokens at the "
+                        "value level. Pass this flag to retain them "
+                        "(paper-strict, larger index). Cached indices "
+                        "built under different flags are NOT compatible "
+                        "(the default index path includes a suffix).")
+    p.add_argument("--no_save_index", action="store_true",
+                   help="Skip persisting the cooccurrence index to disk. "
+                        "Useful at scale where pickling a 10s-of-GB dict "
+                        "doubles peak RAM and risks OOM. Re-runs must "
+                        "rebuild the index from corpus.")
+    p.add_argument("--string_matcher", choices=["edit", "jaccard", "jw"],
+                   default="edit",
+                   help="WP3 approximate-match function. 'edit' (default, "
+                        "paper-strict) uses banded edit distance. 'jaccard' "
+                        "uses char-2gram Jaccard (faster, more permissive on "
+                        "tokenized text). 'jw' uses Jaro-Winkler (fast, good "
+                        "for short tokens). Only applies when --no_approx is "
+                        "NOT set.")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    skip_noise_values = not args.no_skip_noise_values
     os.makedirs(args.output_folder, exist_ok=True)
+    index_suffix = "skipnoise" if skip_noise_values else "full"
     index_path = args.index_path or os.path.join(
-        args.output_folder, "cooccurrence_index.pkl"
+        args.output_folder, f"cooccurrence_index_{index_suffix}.pkl"
     )
     table_types = tuple(t.strip() for t in args.table_types.split(",") if t.strip())
 
@@ -113,9 +158,16 @@ def main() -> None:
         print(f"  Loading cached index from {index_path}")
         index = load_index(index_path)
     else:
-        index = build_cooccurrence_index(corpus)
-        save_index(index, index_path)
-        print(f"  Saved index to {index_path}")
+        with heartbeat("stage2-cooccurrence-index"):
+            index = build_cooccurrence_index(
+                corpus, skip_noise_values=skip_noise_values,
+            )
+        if args.no_save_index:
+            print(f"  Skipping index persistence (--no_save_index)")
+        else:
+            with heartbeat("stage2-save-index"):
+                save_index(index, index_path)
+            print(f"  Saved index to {index_path}")
     index_summary(index)
     npmi_sanity(index)
     print(f"  Time: {time.time() - t0:.2f}s\n")
@@ -123,7 +175,10 @@ def main() -> None:
     # ---- Stage 3: Score -----------------------------------------------------
     print("[Stage 3/6] Computing coherence scores...")
     t0 = time.time()
-    scored = score_corpus(corpus, index)
+    with heartbeat("stage3-coherence"):
+        scored = score_corpus(
+            corpus, index, skip_noise_values=skip_noise_values,
+        )
     if scored:
         avg = sum(s for _, _, _, s in scored) / len(scored)
         top = max(scored, key=lambda x: x[3])
@@ -133,6 +188,12 @@ def main() -> None:
         print(f"  Highest: {top[2][:5]}{'...' if len(top[2]) > 5 else ''} -> {top[3]:.3f}")
         print(f"  Lowest:  {bot[2][:5]}{'...' if len(bot[2]) > 5 else ''} -> {bot[3]:.3f}")
     print(f"  Time: {time.time() - t0:.2f}s\n")
+
+    # index is dead after Stage 3 (Stage 4 only reads `scored` + `corpus`).
+    # At 1M+ scale that's ~150 GB held for an extra ~90s; free immediately.
+    import gc
+    del index
+    gc.collect()
 
     # ---- Stage 4: Filter (WP1) ----------------------------------------------
     print("[Stage 4/6] Filtering columns (PMI coherence)...")
@@ -151,6 +212,11 @@ def main() -> None:
     print(f"  Saved threshold sweep to {sweep_path}")
     print(f"  Time: {time.time() - t0:.2f}s\n")
 
+    # corpus + scored + kept + removed all dead after Stage 4: WP2 reads only
+    # `filtered`, and at 1M corpus alone is ~20 GB.
+    del corpus, scored, kept, removed
+    gc.collect()
+
     # ---- Stage 5: Approximate-FD column-pair filter (WP2) -------------------
     print(f"[Stage 5/6] FD filtering (theta={args.theta}, "
           f"min_rows={args.min_rows})...")
@@ -166,10 +232,27 @@ def main() -> None:
         }
         for metadata, columns, scores, rejected in filtered
     ]
-    candidates = filter_candidates_by_fd(
-        filtered_records, theta_threshold=args.theta, min_rows=args.min_rows
-    )
+    # `filtered` is fully copied into filtered_records; drop the original.
+    del filtered
+    gc.collect()
+
+    with heartbeat("stage5-fd-filter"):
+        candidates = filter_candidates_by_fd(
+            filtered_records, theta_threshold=args.theta, min_rows=args.min_rows
+        )
+    # WP2 has consumed filtered_records into `candidates`; drop the source.
+    del filtered_records
+    gc.collect()
+
     candidates_summary(candidates)
+    n_before_noise = len(candidates)
+    candidates, drops = filter_noise_candidates(candidates)
+    if n_before_noise:
+        total_dropped = n_before_noise - len(candidates)
+        print(f"  Noise filter: dropped {total_dropped}/{n_before_noise} "
+              f"candidates ({100 * total_dropped / n_before_noise:.1f}%)")
+        for reason, n in sorted(drops.items(), key=lambda kv: -kv[1]):
+            print(f"    {reason}: {n}")
     candidates_path = os.path.join(args.output_folder, "candidates.jsonl")
     save_candidates(candidates, candidates_path)
     print(f"  Saved {len(candidates)} candidates to {candidates_path}")
@@ -178,15 +261,83 @@ def main() -> None:
     # ---- Stage 6: Table Synthesis (WP3) ----------------------------------
     print(f"[Stage 6/6] Table synthesis (tau={args.tau})...")
     t0 = time.time()
-    wp3_candidates = load_wp3_candidates(candidates_path)
-    print(f"  Loaded {len(wp3_candidates)} candidates")
-    partitions = greedy_partition(
-        wp3_candidates,
-        tau=args.tau,
-        theta_overlap=args.theta_overlap,
-        use_approx=not args.no_approx,
-        output_folder=args.output_folder
-    )
+    # Skip the disk round-trip: `candidates` is already in memory and just
+    # needs pair lists -> tuples to match load_wp3_candidates' format.
+    # In-place so we don't briefly hold two copies at 1M+ scale.
+    for c in candidates:
+        c["pairs"] = [tuple(p) for p in c["pairs"]]
+    wp3_candidates = candidates
+    del candidates  # alias removal; wp3_candidates keeps the list alive
+    print(f"  Reusing {len(wp3_candidates)} candidates (in-memory, no reload)")
+
+    # Approx-match function patch — done here (after WP2/noise so we can
+    # pre-tokenize from the final candidate set) and BEFORE the Pool spawns
+    # so forked workers inherit the patched module + caches via COW.
+    if args.string_matcher == "jaccard":
+        import synthesis
+        from jaccard_similarity import normalize, char_ngrams
+        print("  Pre-tokenizing candidate values for Jaccard matcher...")
+        _t_pre = time.time()
+        # Build value -> char-2gram cache. Each lookup at scoring time becomes
+        # a single dict access instead of LRU+normalize+rebuild.
+        _ngrams: dict = {}
+        for c in wp3_candidates:
+            for l, r in c["pairs"]:
+                if l not in _ngrams:
+                    _ngrams[l] = char_ngrams(l, 2)
+                if r not in _ngrams:
+                    _ngrams[r] = char_ngrams(r, 2)
+        print(f"  Pre-tokenized {len(_ngrams)} unique values "
+              f"in {time.time() - _t_pre:.1f}s")
+
+        # Inline closure — bypasses the JaccardMatcher class dispatch (~6
+        # frames per call -> 2 frames per call). Combined with the prebuilt
+        # cache, this is ~3-5x faster than the previous lambda + LRU path.
+        def jaccard_match(a, b):
+            ga = _ngrams.get(a)
+            if ga is None:
+                ga = char_ngrams(a, 2)
+            gb = _ngrams.get(b)
+            if gb is None:
+                gb = char_ngrams(b, 2)
+            if not ga or not gb:
+                return not ga and not gb
+            inter = len(ga & gb)
+            return (inter / (len(ga) + len(gb) - inter)) >= 0.5
+
+        synthesis.approx_match = jaccard_match
+        print(f"  String matcher: Jaccard char-2gram (threshold=0.5, "
+              f"pre-tokenized)")
+    elif args.string_matcher == "jw":
+        import synthesis
+        from jaro_winkler import JaroWinklerMatcher
+        _jw = JaroWinklerMatcher(threshold=0.85)
+        synthesis.approx_match = lambda a, b: _jw.are_match(a, b)[0]
+        print(f"  String matcher: Jaro-Winkler (threshold=0.85)")
+
+    with heartbeat("stage6-synthesis"):
+        if args.parallel_workers > 1:
+            from parallel_pipeline import parallel_greedy_partition
+            partitions = parallel_greedy_partition(
+                wp3_candidates,
+                tau=args.tau,
+                theta_overlap=args.theta_overlap,
+                use_approx=not args.no_approx,
+                n_workers=args.parallel_workers,
+                output_folder=args.output_folder,
+                theta_edge=args.theta_edge,
+                max_bucket_size=args.max_bucket_size,
+            )
+        else:
+            partitions = greedy_partition(
+                wp3_candidates,
+                tau=args.tau,
+                theta_overlap=args.theta_overlap,
+                use_approx=not args.no_approx,
+                output_folder=args.output_folder,
+                theta_edge=args.theta_edge,
+                max_bucket_size=args.max_bucket_size,
+            )
     synthesis_report(partitions, wp3_candidates)
     mappings_path = os.path.join(args.output_folder, "synthesized_mappings.jsonl")
     save_synthesized_mappings(partitions, wp3_candidates, mappings_path)

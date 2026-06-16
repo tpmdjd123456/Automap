@@ -22,8 +22,11 @@ import time
 import multiprocessing as mp
 from typing import List, Tuple, Optional
 
+from tqdm import tqdm
+
 from npmi import compute_coherence
 from fd_filter import compute_approx_fd
+from synthesis import positive_score, negative_score
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +89,35 @@ def _fd_filter_worker(args: Tuple) -> List[dict]:
                     "source_metadata": metadata,
                 })
     return candidates
+
+
+# ---------------------------------------------------------------------------
+# Parallel WP3 initial scoring (see specs/2026-06-03-parallel-wp3-...)
+# ---------------------------------------------------------------------------
+
+# Module-level globals populated in each worker process by
+# `_init_scoring_worker`. They stay None in the parent.
+_CANDIDATES = None
+_USE_APPROX = None
+
+
+def _init_scoring_worker(candidates, use_approx):
+    """Pool initializer: stash candidates and use_approx in worker globals
+    so per-task args can be just `(ci, cj)`."""
+    global _CANDIDATES, _USE_APPROX
+    _CANDIDATES = candidates
+    _USE_APPROX = use_approx
+
+
+def _score_edge_worker(edge):
+    """Score one overlap edge. Reads from module globals set by
+    `_init_scoring_worker`. Returns `(ci, cj, pos, neg)`."""
+    ci, cj = edge
+    bp = list(_CANDIDATES[ci]["pairs"])
+    bq = list(_CANDIDATES[cj]["pairs"])
+    ps = positive_score(bp, bq, use_approx=_USE_APPROX)
+    ns = negative_score(bp, bq, use_approx=_USE_APPROX)
+    return ci, cj, ps, ns
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +290,103 @@ def demo(corpus_path: str = "dev_chunks/chunk_1_mini_1000.json") -> None:
 
     print("\nRunning benchmark...")
     benchmark(corpus, index)
+
+
+def parallel_compute_initial_scores(
+    overlapping_pairs,
+    candidates,
+    use_approx,
+    n_workers=None,
+    chunk_size=1000,
+    theta_edge=0.85,
+):
+    """Parallel drop-in for synthesis._compute_initial_scores.
+
+    Filters positive edges with `ps >= theta_edge and ps > 0` (matches
+    sequential helper). Default `theta_edge=0.85` per paper §5.4.
+    """
+    if n_workers is None:
+        n_workers = mp.cpu_count()
+
+    edges = sorted(overlapping_pairs)  # deterministic order
+    pos_scores = {}
+    neg_scores = {}
+    positive_edges = 0
+    blocking_edges = 0
+
+    with mp.Pool(
+        processes=n_workers,
+        initializer=_init_scoring_worker,
+        initargs=(candidates, use_approx),
+        maxtasksperchild=100,
+    ) as pool:
+        for ci, cj, ps, ns in tqdm(
+            pool.imap(_score_edge_worker, edges, chunksize=chunk_size),
+            total=len(edges),
+            desc="Calculating initial edge weights (parallel)",
+            unit="pair",
+        ):
+            key = (ci, cj)
+            if ps >= theta_edge and ps > 0:
+                pos_scores[key] = ps
+                positive_edges += 1
+            if ns < 0:
+                neg_scores[key] = ns
+                if ns < -0.2:
+                    blocking_edges += 1
+
+    return pos_scores, neg_scores, positive_edges, blocking_edges
+
+
+def parallel_greedy_partition(
+    candidates,
+    tau=-0.2,
+    theta_overlap=1,
+    use_approx=True,
+    n_workers=None,
+    chunk_size=1000,
+    output_folder="output",
+    theta_edge=0.85,
+    max_bucket_size=0,
+):
+    """Parallel sibling of synthesis.greedy_partition.
+
+    `theta_edge` is forwarded to parallel_compute_initial_scores; default
+    0.85 matches paper §5.4. Output is bit-identical to greedy_partition
+    for any input at the same theta_edge.
+    """
+    from synthesis import build_inverted_index, _build_overlap_set, _run_merge_loop
+
+    n = len(candidates)
+    if n == 0:
+        return []
+
+    print(f"  Building inverted index...")
+    pair_index, left_index = build_inverted_index(candidates)
+    print(f"    pair_index: {len(pair_index)} unique pairs")
+    print(f"    left_index: {len(left_index)} unique left values")
+
+    print(f"  Computing initial compatibility graph (parallel, {n_workers or mp.cpu_count()} workers)...")
+    overlapping_pairs = _build_overlap_set(
+        pair_index, left_index, theta_overlap, max_bucket_size=max_bucket_size,
+    )
+    # pair_index / left_index dead after _build_overlap_set; free before the
+    # worker pool spawns (each fork inherits the parent's RSS via COW).
+    import gc
+    del pair_index, left_index
+    gc.collect()
+    pos_scores, neg_scores, positive_edges, blocking_edges = parallel_compute_initial_scores(
+        overlapping_pairs, candidates, use_approx,
+        n_workers=n_workers, chunk_size=chunk_size,
+        theta_edge=theta_edge,
+    )
+    print(f"    Non-zero positive edges: {positive_edges}")
+    print(f"    Blocking negative edges (w- < tau): {blocking_edges}")
+    print(f"  Running greedy partitioning...")
+
+    return _run_merge_loop(
+        candidates, pos_scores, neg_scores, tau, output_folder
+    )
 
 
 if __name__ == "__main__":

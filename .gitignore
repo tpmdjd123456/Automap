@@ -4,3 +4,11 @@ __pycache__/
 .pytest_cache/
 .venv/
 tables.json
+
+# macOS / IDE / editor
+.DS_Store
+.idea/
+.claude/
+
+# Run logs (large; reproducible artifacts)
+*.log

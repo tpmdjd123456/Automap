@@ -233,33 +233,39 @@ def test_corpus_summary_runs(synthetic_corpus, capsys):
 
 
 def test_index_total_columns(synthetic_corpus):
-    cooc, vc, N = build_cooccurrence_index(synthetic_corpus)
+    cooc, vc, N, s2i = build_cooccurrence_index(synthetic_corpus)
     # 5 country/ticker tables × 2 cols (10) + garbage (1) + 10 noise tables (10) = 21.
     assert N == 21
 
 
 def test_index_value_count_dedupes_within_column(synthetic_corpus):
-    cooc, vc, N = build_cooccurrence_index(synthetic_corpus)
+    from cooccurrence_index import pack
+    cooc, vc, N, s2i = build_cooccurrence_index(synthetic_corpus)
     # "united states" appears in column 0 of tables 0 and 1 only -> count 2.
-    assert vc["united states"] == 2
+    assert vc[s2i["united states"]] == 2
     # "msft" appears in column 0 of tables 3 and 4 -> count 2.
-    assert vc["msft"] == 2
+    assert vc[s2i["msft"]] == 2
 
 
 def test_index_cooccurrence_uses_sorted_keys(synthetic_corpus):
-    cooc, vc, N = build_cooccurrence_index(synthetic_corpus)
-    # ("canada", "united states") -> sorted key, present in tables 0 and 1.
-    key = tuple(sorted(["united states", "canada"]))
-    assert cooc[key] == 2
-    # Reverse-order key should not exist.
-    assert ("united states", "canada") not in cooc or key == ("canada", "united states")
+    from cooccurrence_index import pack
+    cooc, vc, N, s2i = build_cooccurrence_index(synthetic_corpus)
+    # ("canada", "united states") present in tables 0 and 1.
+    u_id, v_id = s2i["canada"], s2i["united states"]
+    a, b = (u_id, v_id) if u_id < v_id else (v_id, u_id)
+    assert cooc[pack(a, b)] == 2
+    # Reverse-order pack should not exist (we always canonicalize to a<=b).
+    if a != b:
+        assert pack(b, a) not in cooc
 
 
 def test_index_garbage_pairs_unique_to_one_column(synthetic_corpus):
-    cooc, vc, N = build_cooccurrence_index(synthetic_corpus)
+    from cooccurrence_index import pack
+    cooc, vc, N, s2i = build_cooccurrence_index(synthetic_corpus)
     # ("hello world", "the matrix") only co-occurs in the garbage column.
-    key = tuple(sorted(["hello world", "the matrix"]))
-    assert cooc[key] == 1
+    u_id, v_id = s2i["hello world"], s2i["the matrix"]
+    a, b = (u_id, v_id) if u_id < v_id else (v_id, u_id)
+    assert cooc[pack(a, b)] == 1
 
 
 def test_index_pickle_roundtrip(synthetic_corpus, tmp_path):
@@ -270,6 +276,7 @@ def test_index_pickle_roundtrip(synthetic_corpus, tmp_path):
     assert loaded[0] == original[0]
     assert loaded[1] == original[1]
     assert loaded[2] == original[2]
+    assert loaded[3] == original[3]
 
 
 def test_index_summary_runs(synthetic_corpus, capsys):
@@ -302,16 +309,21 @@ def test_npmi_unknown_value_returns_minus_one(synthetic_corpus):
 
 def test_npmi_symmetry(synthetic_corpus):
     idx = build_cooccurrence_index(synthetic_corpus)
-    cooc, vc, N = idx
-    pairs = list(cooc.keys())[:50]
-    for u, v in pairs:
+    cooc, vc, N, s2i = idx
+    id_to_str = {sid: s for s, sid in s2i.items()}
+    for packed in list(cooc.keys())[:50]:
+        a, b = packed >> 32, packed & 0xFFFFFFFF
+        u, v = id_to_str[a], id_to_str[b]
         assert compute_npmi(u, v, idx) == compute_npmi(v, u, idx)
 
 
 def test_npmi_clipping_range(synthetic_corpus):
     idx = build_cooccurrence_index(synthetic_corpus)
-    cooc, vc, N = idx
-    for u, v in list(cooc.keys())[:200]:
+    cooc, vc, N, s2i = idx
+    id_to_str = {sid: s for s, sid in s2i.items()}
+    for packed in list(cooc.keys())[:200]:
+        a, b = packed >> 32, packed & 0xFFFFFFFF
+        u, v = id_to_str[a], id_to_str[b]
         s = compute_npmi(u, v, idx)
         assert -1.0 <= s <= 1.0
 

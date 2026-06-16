@@ -1,21 +1,16 @@
-# Auto-Map — Section 3: Candidate Table Extraction
+# Auto-Map
 
-Re-implementation of **Section 3** of Wang & He, *Synthesizing Mapping
-Relationships Using Table Corpus* (SIGMOD 2017): the candidate-extraction
-preprocessing stage that produces mapping-pair candidates ready for table
-synthesis.
+Re-implementation of Wang & He, *Synthesizing Mapping Relationships Using
+Table Corpus* (SIGMOD 2017). Implements §3 (candidate extraction) and §4
+(table synthesis + conflict resolution) end-to-end:
 
-Section 3 has two sub-steps and both are implemented here:
+- **§3.1 / WP1** — column filtering by PMI coherence.
+- **§3.2 / WP2** — column-pair filtering by approximate functional dependency.
+- **§4.2 / WP3** — greedy table synthesis (Algorithm 3).
+- **§4.3 / WP4** — conflict resolution (Algorithm 4).
 
-- **§3.1 Column filtering by PMI** (WP1) — drop incoherent columns whose
-  values don't semantically belong together.
-- **§3.2 Column-pair filtering by FD** (WP2) — for every pair of surviving
-  columns in a table, keep only those that satisfy approximate functional
-  dependency (`X →_θ Y`, θ ≥ 0.95).
-
-Section 4.2 (Table Synthesis) is implemented in `synthesis.py`.
-Section 4.3 (Conflict Resolution) is implemented in `conflict_resolution.py`.
-Section 5 (Evaluation) is out of scope for this repo.
+The pipeline runs as 7 stages in `main.py`. Section 5 (evaluation) is out
+of scope.
 
 ## Install
 
@@ -27,23 +22,78 @@ pip install -r requirements.txt
 
 ## Run
 
-One command runs the full Section 3 pipeline:
+Small smoke test on the bundled sample corpus (~2,700 tables, ~9 s):
 
 ```bash
 python main.py --corpus_path data/sample.json \
-               --output_folder output/ \
-               --threshold 0.3 \
-               --theta 0.95 \
-               --index_path output/cooccurrence_index.pkl
+               --output_folder output/sample/ \
+               --threshold 0.3 --theta 0.95
 ```
 
-Five stages: load → build co-occurrence index → score columns → WP1 filter
-→ WP2 FD filter. On the sample corpus (~2,700 tables) this runs in ~9
-seconds end-to-end and produces ~33,000 candidate column pairs.
+### Scaling runs
 
-CSV folder input also works (`--corpus_path path/to/csv_folder/`).
-Re-runs reuse the cached index from `--index_path` unless you pass
-`--rebuild_index`.
+Paper-faithful exact-match path (fast at any scale):
+
+```bash
+python main.py \
+    --corpus_path data/vertica_filtered_1500k.jsonl \
+    --output_folder output/results_1500k_noapprox/ \
+    --threshold 0.3 --theta 0.95 \
+    --parallel_workers 8 \
+    --max_bucket_size 250 \
+    --no_save_index \
+    --no_approx
+```
+
+Approximate-match path with Jaccard char-2gram (catches fuzzy synonymies
+that exact match misses; slower):
+
+```bash
+python main.py \
+    --corpus_path data/vertica_filtered_1500k.jsonl \
+    --output_folder output/results_1500k_jaccard/ \
+    --threshold 0.3 --theta 0.95 \
+    --parallel_workers 8 \
+    --max_bucket_size 250 \
+    --no_save_index \
+    --string_matcher jaccard
+```
+
+### Vertica extract + pipeline chain
+
+`chain_1500k_jaccard.sh` runs the Vertica scan that produces the 1.5M
+corpus, then auto-launches the Jaccard pipeline on it. Used for the
+1.5M-table run reported in `docs/`:
+
+```bash
+./chain_1500k_jaccard.sh
+```
+
+The 1.5M Jaccard run wall-clock was 15h 16m on dama (8 workers, 251 GB
+RAM) and produced 10,734,449 synthesized mappings of which 112,837 merged
+multiple candidates from up to 968 source tables.
+
+### Flags worth knowing
+
+| Flag | Effect |
+|---|---|
+| `--no_approx` | WP3 uses exact equality (paper-strict §4.1 alternate path). Much faster than approx. |
+| `--string_matcher {edit,jaccard,jw}` | Approx matcher when `--no_approx` is not set. `edit` is paper-strict, `jaccard`/`jw` are faster alternatives. |
+| `--max_bucket_size N` | Drop inverted-index buckets with >N candidates from WP3 overlap enumeration (caps the Σ k² blowup at scale). |
+| `--parallel_workers N` | Parallelize WP3 scoring across N worker processes. |
+| `--no_save_index` | Skip pickling the cooccurrence index (avoids 10s-of-GB pickle buffer at 1M+). |
+| `--no_skip_noise_values` | Paper-strict cooccurrence index (don't drop pure-numeric / hex / placeholder values). |
+
+### Reproducing just WP4
+
+If a pipeline run was killed after WP3 saved `synthesized_mappings.jsonl`
+but before WP4 finished, recover the WP4 output without redoing WP1-WP3:
+
+```bash
+python run_wp4.py \
+    --synthesized output/<folder>/synthesized_mappings.jsonl \
+    --resolved   output/<folder>/resolved_mappings.jsonl
+```
 
 ## Outputs
 
@@ -51,28 +101,14 @@ All artifacts land in `--output_folder`:
 
 | Path | What |
 |---|---|
-| `filtered_corpus.jsonl` | WP1 output — corpus with low-coherence columns removed. Mirrors input schema; adds `coherence_scores` and `rejected_column_indices`. |
-| `coherence_distribution.png` | Histogram of column coherence scores with a red dashed line at the threshold. |
-| `threshold_sweep.txt` | Kept-vs-removed column counts at thresholds {0.1, 0.2, 0.3, 0.4, 0.5}. |
-| `cooccurrence_index.pkl` | Pickled `(cooccurrence, value_count, total_columns)`. Cached for re-runs. |
-| `candidates.jsonl` | **WP2 output** — one ordered column pair per line, each with deduplicated `(left, right)` value pairs, `theta`, `row_count`, `covered_rows`, source-table indices, and pass-through metadata. This is the input to WP3. |
-
-## How it works
-
-1. **Load** the corpus (JSONL or CSV folder). For JSONL, only `RELATION`
-   tables are kept and the header row is stripped per `hasHeader` /
-   `headerRowIndex` metadata.
-2. **Index** every distinct value and every distinct value pair across all
-   columns of the corpus (one column = one observation; pairs are stored
-   sorted so `(a,b)` and `(b,a)` collide).
-3. **Score** each column by mean NPMI over all unordered pairs of its
-   distinct values.
-4. **WP1 — Filter columns** below the coherence threshold τ. Rebuild
-   surviving tables and emit `filtered_corpus.jsonl`.
-5. **WP2 — Filter column pairs** by approximate FD. For every ordered
-   pair `(C_i, C_j)` from each surviving table, compute the witness-subset
-   θ score. Pairs with θ ≥ 0.95 become candidates and are emitted to
-   `candidates.jsonl`.
+| `filtered_corpus.jsonl` | WP1 output — corpus with low-coherence columns removed. |
+| `coherence_distribution.png` | Histogram of column coherence with the threshold line. |
+| `threshold_sweep.txt` | Kept-vs-removed at thresholds 0.1, 0.2, 0.3, 0.4, 0.5. |
+| `cooccurrence_index_{skipnoise,full}.pkl` | Pickled index (omitted under `--no_save_index`). |
+| `candidates.jsonl` | WP2 output — one column pair per line. Input to WP3. |
+| `computed_edge_scores.jsonl` | WP3 edge weights (for inspection). |
+| `synthesized_mappings.jsonl` | WP3 output — synthesized partitions of candidates. |
+| `resolved_mappings.jsonl` | WP4 output — partitions after conflict resolution. |
 
 ## Tests
 
@@ -80,37 +116,37 @@ All artifacts land in `--output_folder`:
 python -m pytest -v
 ```
 
-65 tests covering: value normalization, JSONL/CSV loaders, co-occurrence
-index, PMI/NPMI math, coherence filtering, approximate-FD filtering,
-candidate schema, and an end-to-end smoke test that runs `main.py` via
-subprocess on a synthetic corpus.
+295 tests across WP1 (coherence, NPMI), WP2 (FD filter), WP3 (synthesis,
+parallel scoring, connected components, bucket cap), and WP4 (conflict
+resolution).
 
 ## Repo layout
 
 ```
-main.py                        Section 3 pipeline driver (5 stages)
-data_loader.py                 JSONL + CSV loaders, value normalization
-cooccurrence_index.py          Global co-occurrence index over the corpus
-npmi.py                        PMI / NPMI / coherence math (WP1)
-filter.py                      Coherence threshold filter + reporting (WP1)
-fd_filter.py                   Approximate-FD filter + candidate emission (WP2)
-tests/                         pytest suite (test_wp1.py, test_wp2.py)
-conftest.py                    Shared synthetic fixtures
-data/sample.json               WDC web-table sample (~30 MB)
-conflict_resolution.py         Conflict resolution pipeline (WP4)
-output/                        Pipeline outputs (gitignored)
+main.py                    7-stage pipeline driver
+data_loader.py             JSONL + CSV loaders
+cooccurrence_index.py      Interned global value-cooccurrence index (WP1 §3.1)
+npmi.py                    PMI / NPMI / coherence math (WP1)
+filter.py                  Coherence threshold filter (WP1)
+fd_filter.py               Approximate-FD filter (WP2 §3.2)
+noise_filter.py            Candidate / value noise predicates
+synthesis.py               Greedy partition + scoring (WP3 §4.2)
+parallel_pipeline.py       Parallel WP3 scoring + greedy_partition
+conflict_resolution.py     WP4 §4.3
+heartbeat.py               CPU/RAM heartbeat for long stages
+jaccard_similarity.py      Jaccard char-2gram matcher
+jaro_winkler.py            Jaro-Winkler matcher
+string_matcher.py          Edit-distance + helpers
+extract_filtered_sample.py Vertica server-side filter + sample
+run_wp4.py                 Stand-alone WP4 runner
+chain_1500k_jaccard.sh     Extract -> pipeline chain for 1.5M runs
+tests/                     295-test pytest suite
+data/sample.json           Bundled small sample corpus
+output/                    Gitignored
 ```
 
 ## Documentation
 
-- **`claude/USAGE.md`** — runbook with all CLI flags, output schemas,
-  inspection snippets, and θ/τ tuning guidance.
-- **`claude/WALKTHROUGH.md`** — code walkthrough explaining the math, the
-  module boundaries, the synthetic test corpus design, and key Q&A.
-- **`claude/deviations.md`** — log of every place this implementation
-  departs from the original prompt or makes a non-obvious design choice,
-  with rationale.
-- **`docs/superpowers/specs/`** — design specs for WP1 and WP2.
-- **`docs/superpowers/plans/`** — implementation plans (TDD task lists).
-- **`papers/automap.pdf`** — source paper (Section 3 is what's
-  re-implemented here).
+- `docs/` — run timings (`*-vertica-*-timings.md`) and scaling notes.
+- `claude/` — design specs, walkthrough, runbook, deviations log.
+- `papers/automap.pdf` — source paper.
