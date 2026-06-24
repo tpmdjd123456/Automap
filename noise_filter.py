@@ -1,4 +1,4 @@
-"""Drop non-informational candidates before greedy_partition (WP3).
+r"""Drop non-informational candidates before greedy_partition (WP3).
 
 A candidate is a list of (left, right) pairs from one table's column-pair. We
 drop the candidate when the pair set has no mapping content worth synthesizing
@@ -28,7 +28,7 @@ Reasons (for reporting):
   uuid_pair             - at least one side of every pair is a UUID or compact
                           32-char hex hash (e.g. a1b2c3d4-e5f6-...)
   url_or_path           - at least one side of every pair is a URL (http/https)
-                          or an absolute file-system path (/usr/bin, C:\Users)
+                          or an absolute file-system path (/usr/bin, C:/Users)
   repeated_char         - at least one side of every pair is a run of 3+
                           identical non-alphanumeric characters (e.g. ----, ....
   constant_pair         - one entire column is a single repeated value,
@@ -228,12 +228,14 @@ def _check_uuid_pair(pairs):
     return False, None
 
 
+def _is_url_or_path_value(v):
+    v = str(v).strip()
+    return bool(_URL_RE.match(v) or _PATH_RE.match(v))
+
+
 def _check_url_or_path(pairs):
-    def _is_url_or_path(v):
-        v = str(v).strip()
-        return bool(_URL_RE.match(v) or _PATH_RE.match(v))
     if all(
-        _is_url_or_path(l) or _is_url_or_path(r)
+        _is_url_or_path_value(l) or _is_url_or_path_value(r)
         for l, r in pairs
     ):
         return True, "url_or_path"
@@ -297,7 +299,7 @@ def is_noise(pairs: Sequence[Tuple[str, str]]) -> Tuple[bool, Optional[str]]:
            for l, r in pairs):
         return True, "uuid_pair"
 
-    if all(_is_url_or_path(str(l)) or _is_url_or_path(str(r))
+    if all(_is_url_or_path_value(str(l)) or _is_url_or_path_value(str(r))
            for l, r in pairs):
         return True, "url_or_path"
 
