@@ -1,0 +1,27 @@
+Gold distinct pairs (unordered):     95088
+Predicted distinct pairs (unordered):25852214
+Corpus distinct values (subset):     14550456
+
+True positives (P & G):              25933
+
+=== Global (all predicted pairs) ===
+  Precision: 0.0010
+  Recall:    0.2727
+  F1:        0.0020
+
+=== Achievable recall (gold pairs whose both values are in the subset) ===
+  Gold pairs present in subset: 51863 / 95088
+  Achievable recall:            0.5000
+
+=== Covered recall (gold pairs that co-occur in a row = recall ceiling) ===
+  Covered gold pairs:           30134 / 95088 (31.7% of benchmark)
+  Covered TP (P & covered):     25933
+  Covered recall:               0.8606
+
+=== Scoped precision (predicted pairs within benchmark value universe) ===
+  Predicted pairs in scope: 304825
+  Scoped TP:                25933
+  Scoped precision:         0.0851
+
+=== Scoped F1 (scoped precision + achievable recall) ===
+  Scoped F1: 0.1454

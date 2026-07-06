@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import time
 import multiprocessing as mp
 from typing import List, Tuple, Optional
@@ -27,6 +28,15 @@ from tqdm import tqdm
 from npmi import compute_coherence
 from fd_filter import compute_approx_fd
 from synthesis import positive_score, negative_score
+
+# Scoring-only pair cap. When >0, edge scoring (positive/negative compatibility)
+# uses at most this many pairs per candidate, making each edge O(cap^2) instead
+# of O(|B|*|B'|). This ONLY bounds the score estimate used for merge decisions;
+# the full pair lists are untouched and are what the merge/output actually
+# union, so recall (gold pairs present in the output) is preserved. Set via
+# AUTOMAP_SCORE_PAIR_CAP; read at import so forked workers inherit it (and spawn
+# workers re-read the same env var). 0 = paper-strict, no cap.
+_SCORE_CAP = int(os.environ.get("AUTOMAP_SCORE_PAIR_CAP", "0"))
 
 
 # ---------------------------------------------------------------------------
@@ -111,12 +121,23 @@ def _init_scoring_worker(candidates, use_approx):
 
 def _score_edge_worker(edge):
     """Score one overlap edge. Reads from module globals set by
-    `_init_scoring_worker`. Returns `(ci, cj, pos, neg)`."""
+    `_init_scoring_worker`. Returns `(ci, cj, pos, neg)`.
+
+    When ``_SCORE_CAP > 0`` the score is estimated from at most ``_SCORE_CAP``
+    pairs per candidate (the giant value-rich cover-table candidates otherwise
+    make each edge O(|B|*|B'|) with thousands of pairs). This affects only the
+    merge-decision scores, not the pairs that get unioned into the output.
+    """
     ci, cj = edge
-    bp = list(_CANDIDATES[ci]["pairs"])
-    bq = list(_CANDIDATES[cj]["pairs"])
-    ps = positive_score(bp, bq, use_approx=_USE_APPROX)
-    ns = negative_score(bp, bq, use_approx=_USE_APPROX)
+    bp = _CANDIDATES[ci]["pairs"]
+    bq = _CANDIDATES[cj]["pairs"]
+    if _SCORE_CAP:
+        if len(bp) > _SCORE_CAP:
+            bp = bp[:_SCORE_CAP]
+        if len(bq) > _SCORE_CAP:
+            bq = bq[:_SCORE_CAP]
+    ps = positive_score(list(bp), list(bq), use_approx=_USE_APPROX)
+    ns = negative_score(list(bp), list(bq), use_approx=_USE_APPROX)
     return ci, cj, ps, ns
 
 
