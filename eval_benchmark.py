@@ -21,6 +21,11 @@ from data_loader import clean_value, load_corpus
 BENCH = sys.argv[1] if len(sys.argv) > 1 else "data/benchmark-web.txt"
 PRED = sys.argv[2] if len(sys.argv) > 2 else "output/wdc_run_100k/resolved_mappings.jsonl"
 CORPUS = sys.argv[3] if len(sys.argv) > 3 else "data/wdc_100k.jsonl"
+# Gold pairs that actually CO-OCCUR in a row somewhere in the corpus (built by
+# build_benchmark_cover.py / extract_covered_pairs.py). These are the only pairs
+# the pipeline can ever seed, so |P & COVERED| / |COVERED| is the true recall
+# ceiling. Optional: skipped if the file is absent.
+COVERED = sys.argv[4] if len(sys.argv) > 4 else "data/benchmark-covered.txt"
 
 
 def und(a, b):
@@ -77,6 +82,24 @@ prec, rec, f1 = prf(TP, len(P), len(G))
 G_ach = {p for p in G if all(v in V_corpus for v in p)}
 rec_ach = len(P & G_ach) / len(G_ach) if G_ach else 0.0
 
+# ---- covered gold (pairs that co-occur in a row somewhere in the corpus) ----
+G_cov = set()
+try:
+    with open(COVERED, encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 3:
+                continue
+            a, b = clean_value(parts[1]), clean_value(parts[2])
+            if not a or not b:
+                continue
+            p = und(a, b)
+            if p:
+                G_cov.add(p)
+except FileNotFoundError:
+    G_cov = None
+rec_cov = len(P & G_cov) / len(G_cov) if G_cov else 0.0
+
 P_scoped = {p for p in P if all(v in V_bench for v in p)}
 tp_sc = len(P_scoped & G)
 prec_sc = tp_sc / len(P_scoped) if P_scoped else 0.0
@@ -96,6 +119,13 @@ print("=== Achievable recall (gold pairs whose both values are in the subset) ==
 print("  Gold pairs present in subset: %d / %d" % (len(G_ach), len(G)))
 print("  Achievable recall:            %.4f" % rec_ach)
 print()
+if G_cov is not None:
+    print("=== Covered recall (gold pairs that co-occur in a row = recall ceiling) ===")
+    print("  Covered gold pairs:           %d / %d (%.1f%% of benchmark)"
+          % (len(G_cov), len(G), 100.0 * len(G_cov) / len(G)))
+    print("  Covered TP (P & covered):     %d" % len(P & G_cov))
+    print("  Covered recall:               %.4f" % rec_cov)
+    print()
 print("=== Scoped precision (predicted pairs within benchmark value universe) ===")
 print("  Predicted pairs in scope: %d" % len(P_scoped))
 print("  Scoped TP:                %d" % tp_sc)
